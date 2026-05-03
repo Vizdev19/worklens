@@ -5,8 +5,5 @@
   ],
   "routes": [
     { "src": "/(.*)", "dest": "main.py" }
-  ],
-  "crons": [
-    { "path": "/health", "schedule": "*/5 * * * *" }
   ]
 }
