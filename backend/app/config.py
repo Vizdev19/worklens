@@ -1,4 +1,4 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 
 
@@ -17,12 +17,17 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60
     refresh_token_expire_days: int = 30
 
+    # CORS — comma-separated list of allowed origins
+    allowed_origins: str = "http://localhost:3000"
+
     # App
     app_name: str = "EmployeeMonitor"
     environment: str = "development"
 
-    class Config:
-        env_file = ".env"
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="ignore",  # ignore unknown env vars instead of erroring
+    )
 
 
 @lru_cache()
