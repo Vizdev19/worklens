@@ -36,9 +36,12 @@ allowed_origins = os.getenv(
     "http://localhost:3000,http://localhost:8000",
 ).split(",")
 
+# Also allow all Vercel preview deployments via regex (e.g. ...-lyart.vercel.app)
+# Tighten this later when you have a custom domain.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[o.strip() for o in allowed_origins],
+    allow_origins=[o.strip() for o in allowed_origins if o.strip()],
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
