@@ -55,18 +55,27 @@ def update_status(new_status: str, color: str = "green"):
 
 
 def start_tray(on_quit_callback=None):
-    """Start the system tray icon in a background thread."""
+    """Start the system tray icon in a background thread.
+
+    If the tray fails to start (e.g. headless system or platform GUI
+    framework mismatch), we silently continue — agent still runs.
+    """
     global _icon
 
     def _run():
         global _icon
-        _icon = pystray.Icon(
-            name="EmployeeMonitor",
-            icon=_create_icon_image("green"),
-            title="Employee Monitor — Active",
-            menu=_build_menu(),
-        )
-        _icon.run()
+        try:
+            _icon = pystray.Icon(
+                name="EmployeeMonitor",
+                icon=_create_icon_image("green"),
+                title="Employee Monitor — Active",
+                menu=_build_menu(),
+            )
+            _icon.run()
+        except Exception as e:
+            print(f"[tray] Tray icon unavailable ({e}); continuing without it")
+            _icon = None
+            return
         if on_quit_callback:
             on_quit_callback()
 

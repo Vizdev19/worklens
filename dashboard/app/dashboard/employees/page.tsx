@@ -1,12 +1,15 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { employeesApi } from "@/lib/api";
 import Link from "next/link";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, UserPlus } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { AddEmployeeModal } from "@/components/AddEmployeeModal";
 
 export default function EmployeesPage() {
+  const [showAdd, setShowAdd] = useState(false);
   const { data: employees, isLoading } = useQuery({
     queryKey: ["employees"],
     queryFn: employeesApi.list,
@@ -14,23 +17,36 @@ export default function EmployeesPage() {
 
   return (
     <div className="p-8 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Employees</h1>
-        <p className="text-slate-500 text-sm">
-          {employees?.length ?? 0} team member(s)
-        </p>
+      <div className="flex items-end justify-between flex-wrap gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">Employees</h1>
+          <p className="text-slate-500 text-sm">
+            {employees?.length ?? 0} team member(s)
+          </p>
+        </div>
+
+        <button
+          onClick={() => setShowAdd(true)}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg font-medium text-sm transition"
+        >
+          <UserPlus size={16} />
+          Add Employee
+        </button>
       </div>
 
       <div className="bg-white border rounded-xl overflow-hidden">
         {isLoading ? (
           <div className="p-8 text-center text-slate-500">Loading...</div>
         ) : !employees?.length ? (
-          <div className="p-8 text-center text-slate-500">
-            No employees yet. Run{" "}
-            <code className="bg-slate-100 px-1 rounded">
-              python -m scripts.create_employee
-            </code>{" "}
-            to add one.
+          <div className="p-8 text-center">
+            <p className="text-slate-500 mb-3">No employees yet.</p>
+            <button
+              onClick={() => setShowAdd(true)}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-lg font-medium text-sm"
+            >
+              <UserPlus size={16} />
+              Add your first employee
+            </button>
           </div>
         ) : (
           <ul className="divide-y">
@@ -81,6 +97,8 @@ export default function EmployeesPage() {
           </ul>
         )}
       </div>
+
+      {showAdd && <AddEmployeeModal onClose={() => setShowAdd(false)} />}
     </div>
   );
 }

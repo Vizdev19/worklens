@@ -2,6 +2,7 @@ import keyring
 import requests
 import json
 import platform
+from typing import Optional
 from datetime import datetime, timezone
 from config import SERVER_URL, KEYRING_SERVICE
 
@@ -11,7 +12,7 @@ OS = platform.system()
 def _store(key: str, value: str):
     keyring.set_password(KEYRING_SERVICE, key, value)
 
-def _load(key: str) -> str | None:
+def _load(key: str) -> Optional[str]:
     return keyring.get_password(KEYRING_SERVICE, key)
 
 def _clear():
@@ -67,13 +68,13 @@ def refresh_tokens() -> bool:
         return False
 
 
-def get_access_token() -> str | None:
+def get_access_token() -> Optional[str]:
     return _load("access_token")
 
-def get_employee_id() -> str | None:
+def get_employee_id() -> Optional[str]:
     return _load("employee_id")
 
-def get_full_name() -> str | None:
+def get_full_name() -> Optional[str]:
     return _load("full_name")
 
 def is_logged_in() -> bool:

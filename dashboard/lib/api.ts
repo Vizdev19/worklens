@@ -120,6 +120,15 @@ export const authApi = {
 export const employeesApi = {
   list: async () => (await api.get<User[]>("/employees/")).data,
   get: async (id: string) => (await api.get<User>(`/employees/${id}`)).data,
+  create: async (body: {
+    email: string;
+    full_name: string;
+    password: string;
+  }) => (await api.post<User>("/employees/", body)).data,
+  deactivate: async (id: string) =>
+    (await api.patch(`/employees/${id}/deactivate`)).data,
+  activate: async (id: string) =>
+    (await api.patch(`/employees/${id}/activate`)).data,
 };
 
 export const screenshotsApi = {
