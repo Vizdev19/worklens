@@ -52,3 +52,4 @@ app.include_router(employees.router)
 @app.get("/health")
 async def health():
     return {"status": "ok", "app": settings.app_name}
+
