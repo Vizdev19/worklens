@@ -18,6 +18,7 @@ import schedule
 import threading
 
 import auth
+import autostart
 import capture
 import uploader
 import queue_manager
@@ -81,6 +82,9 @@ def main():
             print("[main] Login cancelled. Exiting.")
             sys.exit(0)
         print(f"[main] Logged in as: {auth.get_full_name()}")
+
+        # Register for auto-start after the first successful login
+        autostart.install()
     else:
         print(f"[main] Credentials found for: {auth.get_full_name()}")
 

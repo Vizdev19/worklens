@@ -20,6 +20,8 @@ node_modules/
 dist/
 build/
 *.spec
+# … but keep our hand-crafted PyInstaller spec
+!agent/EmployeeMonitor.spec
 
 # Agent runtime
 queue.db

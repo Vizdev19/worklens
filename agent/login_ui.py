@@ -1,48 +1,148 @@
 """
-Login on first launch.
-Uses tkinter GUI when available; falls back to CLI prompt if tkinter
-can't start (e.g. macOS Tk framework mismatch, headless system).
-Returns True if login succeeded, False if user cancelled.
+Cross-platform login on first launch.
+
+Strategy by OS:
+  macOS    → native AppleScript dialog (osascript) — no deps, never crashes
+  Windows  → tkinter fallback
+  Linux    → zenity (if available) → tkinter → CLI
+
+If running in a real terminal (no GUI), falls back to CLI prompt.
 """
 
 import getpass
+import platform
+import shutil
+import subprocess
+import sys
+
 import auth
+
+OS = platform.system()
 
 
 def show_login() -> bool:
-    # Try GUI first
+    """Show login UI. Return True on success, False on cancel/failure."""
+    has_tty = sys.stdin.isatty()
+
+    # OS-specific GUI first
     try:
-        return _show_login_gui()
+        if OS == "Darwin":
+            return _login_macos()
+        if OS == "Linux" and shutil.which("zenity"):
+            return _login_zenity()
+        # Windows or fallback
+        return _login_tkinter()
     except Exception as e:
-        print(f"[login] GUI unavailable ({e}); falling back to CLI prompt")
-        return _show_login_cli()
+        print(f"[login] GUI failed ({e}); falling back to CLI")
 
-
-def _show_login_cli() -> bool:
-    print("\n=== Employee Monitor — Sign In ===")
-    for _ in range(3):  # 3 attempts
-        try:
-            email = input("Email: ").strip()
-            password = getpass.getpass("Password: ")
-        except (EOFError, KeyboardInterrupt):
-            print("\nCancelled.")
-            return False
-
-        if not email or not password:
-            print("Please enter email and password.")
-            continue
-
-        print("Signing in...")
-        if auth.login(email, password):
-            print(f"✅ Logged in as {auth.get_full_name()}\n")
-            return True
-        print("❌ Invalid credentials. Try again.")
-
-    print("Too many failed attempts. Exiting.")
+    # Last resort
+    if has_tty:
+        return _login_cli()
+    print("[login] No GUI available and no terminal — cannot prompt.")
     return False
 
 
-def _show_login_gui() -> bool:
+# ── macOS: native AppleScript dialog ────────────────────────────────────────
+
+def _osascript(script: str) -> str:
+    """Run an AppleScript and return its stdout. Raises on cancel."""
+    result = subprocess.run(
+        ["osascript", "-e", script],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        # User clicked Cancel or osascript failed
+        raise RuntimeError(result.stderr.strip() or "cancelled")
+    return result.stdout.strip()
+
+
+def _login_macos() -> bool:
+    for _ in range(3):
+        try:
+            email = _osascript(
+                'tell application "System Events" to display dialog '
+                '"Sign in to Employee Monitor\\n\\nEnter your work email:" '
+                'default answer "" with title "Employee Monitor" '
+                'buttons {"Cancel", "Next"} default button "Next"'
+            )
+            # Output looks like: "button returned:Next, text returned:foo@bar.com"
+            email = _parse_text_returned(email)
+
+            password = _osascript(
+                'tell application "System Events" to display dialog '
+                '"Enter your password:" '
+                'default answer "" with hidden answer with title "Employee Monitor" '
+                'buttons {"Cancel", "Sign In"} default button "Sign In"'
+            )
+            password = _parse_text_returned(password)
+        except RuntimeError:
+            print("[login] User cancelled")
+            return False
+
+        if not email or not password:
+            _macos_alert("Email and password are required.")
+            continue
+
+        if auth.login(email, password):
+            return True
+        _macos_alert("Login failed. Please check your credentials and try again.")
+
+    return False
+
+
+def _macos_alert(message: str):
+    msg = message.replace('"', "'")
+    try:
+        _osascript(
+            f'tell application "System Events" to display dialog '
+            f'"{msg}" with title "Employee Monitor" buttons {{"OK"}}'
+        )
+    except Exception:
+        pass
+
+
+def _parse_text_returned(output: str) -> str:
+    """osascript returns 'button returned:X, text returned:Y' — extract Y."""
+    if "text returned:" in output:
+        return output.split("text returned:", 1)[1].strip()
+    return output.strip()
+
+
+# ── Linux: zenity ───────────────────────────────────────────────────────────
+
+def _login_zenity() -> bool:
+    for _ in range(3):
+        email = subprocess.run(
+            ["zenity", "--entry",
+             "--title=Employee Monitor",
+             "--text=Sign in — enter your work email:"],
+            capture_output=True, text=True,
+        )
+        if email.returncode != 0:
+            return False
+
+        password = subprocess.run(
+            ["zenity", "--password", "--title=Employee Monitor"],
+            capture_output=True, text=True,
+        )
+        if password.returncode != 0:
+            return False
+
+        if auth.login(email.stdout.strip(), password.stdout.strip()):
+            return True
+
+        subprocess.run([
+            "zenity", "--error",
+            "--title=Employee Monitor",
+            "--text=Invalid credentials. Please try again.",
+        ])
+    return False
+
+
+# ── Tkinter (Windows / fallback) ────────────────────────────────────────────
+
+def _login_tkinter() -> bool:
     import tkinter as tk
 
     result = {"success": False}
@@ -87,3 +187,29 @@ def _show_login_gui() -> bool:
 
     root.mainloop()
     return result["success"]
+
+
+# ── CLI fallback ────────────────────────────────────────────────────────────
+
+def _login_cli() -> bool:
+    print("\n=== Employee Monitor — Sign In ===")
+    for _ in range(3):
+        try:
+            email = input("Email: ").strip()
+            password = getpass.getpass("Password: ")
+        except (EOFError, KeyboardInterrupt):
+            print("\nCancelled.")
+            return False
+
+        if not email or not password:
+            print("Please enter email and password.")
+            continue
+
+        print("Signing in...")
+        if auth.login(email, password):
+            print(f"✅ Logged in as {auth.get_full_name()}\n")
+            return True
+        print("❌ Invalid credentials. Try again.")
+
+    print("Too many failed attempts. Exiting.")
+    return False

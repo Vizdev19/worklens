@@ -1,0 +1,137 @@
+"""
+Self-installation: register the agent to auto-start on login.
+
+Called once after the first successful login so the employee doesn't
+have to run anything extra. Cross-platform (macOS / Windows / Linux).
+"""
+
+import os
+import platform
+import subprocess
+import sys
+from pathlib import Path
+
+OS = platform.system()
+
+
+def _executable_path() -> str:
+    """Path the OS should launch on login."""
+    if getattr(sys, "frozen", False):
+        # PyInstaller bundle — use the actual executable
+        if OS == "Darwin":
+            # For .app bundles, point at the launcher inside Contents/MacOS
+            exe = Path(sys.executable).resolve()
+            # Walk up to the .app bundle directory
+            app = exe
+            while app.parent != app and not app.name.endswith(".app"):
+                app = app.parent
+            return str(app) if app.name.endswith(".app") else str(exe)
+        return sys.executable
+    # Dev mode — Python interpreter + script (used for local testing)
+    return f"{sys.executable} {Path(__file__).parent / 'main.py'}"
+
+
+def is_installed() -> bool:
+    if OS == "Darwin":
+        return Path(
+            "~/Library/LaunchAgents/com.employeemonitor.agent.plist"
+        ).expanduser().exists()
+    if OS == "Windows":
+        try:
+            import winreg
+            with winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Microsoft\Windows\CurrentVersion\Run",
+            ) as k:
+                winreg.QueryValueEx(k, "EmployeeMonitor")
+            return True
+        except Exception:
+            return False
+    if OS == "Linux":
+        return Path(
+            "~/.config/autostart/employee-monitor.desktop"
+        ).expanduser().exists()
+    return False
+
+
+def install():
+    if is_installed():
+        return
+    try:
+        if OS == "Darwin":
+            _install_macos()
+        elif OS == "Windows":
+            _install_windows()
+        elif OS == "Linux":
+            _install_linux()
+        print("[autostart] Installed — agent will start on login")
+    except Exception as e:
+        print(f"[autostart] Could not install ({e}); skipping")
+
+
+def _install_macos():
+    label = "com.employeemonitor.agent"
+    plist_path = Path(f"~/Library/LaunchAgents/{label}.plist").expanduser()
+    log_dir = Path("~/Library/Logs/EmployeeMonitor").expanduser()
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    exe = _executable_path()
+    program_args = (
+        f'        <string>open</string>\n'
+        f'        <string>-a</string>\n'
+        f'        <string>{exe}</string>'
+        if exe.endswith(".app")
+        else f'        <string>{exe}</string>'
+    )
+
+    plist = f"""<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>{label}</string>
+    <key>ProgramArguments</key>
+    <array>
+{program_args}
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>{log_dir}/stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>{log_dir}/stderr.log</string>
+</dict>
+</plist>
+"""
+    plist_path.parent.mkdir(parents=True, exist_ok=True)
+    plist_path.write_text(plist)
+    subprocess.run(["launchctl", "load", str(plist_path)], check=False)
+
+
+def _install_windows():
+    import winreg
+    exe = _executable_path()
+    with winreg.OpenKey(
+        winreg.HKEY_CURRENT_USER,
+        r"Software\Microsoft\Windows\CurrentVersion\Run",
+        0,
+        winreg.KEY_SET_VALUE,
+    ) as k:
+        winreg.SetValueEx(k, "EmployeeMonitor", 0, winreg.REG_SZ, exe)
+
+
+def _install_linux():
+    autostart_dir = Path("~/.config/autostart").expanduser()
+    autostart_dir.mkdir(parents=True, exist_ok=True)
+    desktop_file = autostart_dir / "employee-monitor.desktop"
+    desktop_file.write_text(
+        "[Desktop Entry]\n"
+        "Type=Application\n"
+        "Name=Employee Monitor\n"
+        f"Exec={_executable_path()}\n"
+        "X-GNOME-Autostart-enabled=true\n"
+        "Hidden=false\n"
+        "NoDisplay=false\n"
+    )
