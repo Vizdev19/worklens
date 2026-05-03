@@ -1,3 +1,4 @@
+import uuid
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.pool import NullPool
@@ -12,11 +13,16 @@ is_pgbouncer = "pooler.supabase.com" in settings.database_url
 # asyncpg-specific connect args
 connect_args: dict = {}
 if is_pgbouncer:
-    # PgBouncer transaction mode doesn't support prepared statements
-    # → disable asyncpg's prepared-statement cache
+    # PgBouncer transaction mode doesn't support prepared statements properly.
+    # Three things needed:
+    #   1. statement_cache_size=0 → don't cache prepared statements client-side
+    #   2. prepared_statement_cache_size=0 → SQLAlchemy-level
+    #   3. unique statement names → each call gets its own server-side name
+    #      (otherwise reused names collide across pooled connections)
     connect_args = {
         "statement_cache_size": 0,
         "prepared_statement_cache_size": 0,
+        "prepared_statement_name_func": lambda: f"__asyncpg_{uuid.uuid4()}__",
     }
 
 # Engine config
