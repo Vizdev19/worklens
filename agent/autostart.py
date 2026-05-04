@@ -15,17 +15,13 @@ OS = platform.system()
 
 
 def _executable_path() -> str:
-    """Path the OS should launch on login."""
+    """Path the OS should launch on login.
+
+    On macOS we always point at the binary inside Contents/MacOS — NOT
+    at the .app via `open -a`. The `open` command exits immediately,
+    which causes launchd to thrash if KeepAlive is on.
+    """
     if getattr(sys, "frozen", False):
-        # PyInstaller bundle — use the actual executable
-        if OS == "Darwin":
-            # For .app bundles, point at the launcher inside Contents/MacOS
-            exe = Path(sys.executable).resolve()
-            # Walk up to the .app bundle directory
-            app = exe
-            while app.parent != app and not app.name.endswith(".app"):
-                app = app.parent
-            return str(app) if app.name.endswith(".app") else str(exe)
         return sys.executable
     # Dev mode — Python interpreter + script (used for local testing)
     return f"{sys.executable} {Path(__file__).parent / 'main.py'}"
@@ -76,13 +72,6 @@ def _install_macos():
     log_dir.mkdir(parents=True, exist_ok=True)
 
     exe = _executable_path()
-    program_args = (
-        f'        <string>open</string>\n'
-        f'        <string>-a</string>\n'
-        f'        <string>{exe}</string>'
-        if exe.endswith(".app")
-        else f'        <string>{exe}</string>'
-    )
 
     plist = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -92,12 +81,19 @@ def _install_macos():
     <string>{label}</string>
     <key>ProgramArguments</key>
     <array>
-{program_args}
+        <string>{exe}</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
-    <true/>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+        <key>Crashed</key>
+        <true/>
+    </dict>
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
     <key>StandardOutPath</key>
     <string>{log_dir}/stdout.log</string>
     <key>StandardErrorPath</key>
@@ -107,6 +103,8 @@ def _install_macos():
 """
     plist_path.parent.mkdir(parents=True, exist_ok=True)
     plist_path.write_text(plist)
+    # Unload first in case an old plist is already running
+    subprocess.run(["launchctl", "unload", str(plist_path)], check=False)
     subprocess.run(["launchctl", "load", str(plist_path)], check=False)
 
 

@@ -18,11 +18,21 @@ cd "$HERE"
 echo "🧹 Cleaning previous builds..."
 rm -rf build dist __pycache__
 
+# Resolve a usable Python interpreter (prefer active venv, then python3)
+PY="${PYTHON:-}"
+if [ -z "$PY" ]; then
+  if command -v python &>/dev/null; then PY=python
+  elif command -v python3 &>/dev/null; then PY=python3
+  else echo "❌ No Python interpreter found"; exit 1
+  fi
+fi
+echo "🐍 Using Python: $($PY --version)"
+
 echo "📦 Installing build deps..."
-pip install --quiet pyinstaller
+"$PY" -m pip install --quiet pyinstaller
 
 echo "🔨 Building executable..."
-pyinstaller "$APP_NAME.spec" --clean --noconfirm
+"$PY" -m PyInstaller "$APP_NAME.spec" --clean --noconfirm
 
 OS_KIND="$(uname -s)"
 case "$OS_KIND" in
