@@ -1,18 +1,29 @@
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from app.database import get_db
 from app.models import Screenshot, User
 from app.schemas import ScreenshotOut, ScreenshotListResponse
 from app.auth import get_current_user, require_admin
-from app.storage import upload_screenshot, get_signed_url
+from app.storage import (
+    upload_screenshot,
+    get_signed_urls_batch,
+    SIGNED_URL_TTL_SECONDS,
+)
 
 router = APIRouter(prefix="/screenshots", tags=["Screenshots"])
 
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png"}
+
+# Refresh stored signed URL when it has less than this remaining
+URL_REFRESH_THRESHOLD_SECONDS = 60 * 60  # 1 hour
+# Reject screenshots claiming a captured_at outside this window
+CAPTURED_AT_PAST_TOLERANCE = timedelta(hours=24)
+CAPTURED_AT_FUTURE_TOLERANCE = timedelta(minutes=5)
 
 
 @router.post("/upload", response_model=ScreenshotOut)
@@ -25,7 +36,8 @@ async def upload(
     current_user: User = Depends(get_current_user),
 ):
     # Validate file type
-    if file.content_type not in ("image/jpeg", "image/png"):
+    content_type = file.content_type or "image/jpeg"
+    if content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(status_code=400, detail="Only JPEG/PNG allowed")
 
     file_bytes = await file.read()
@@ -39,12 +51,20 @@ async def upload(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid captured_at format")
 
+    # Reject suspicious timestamps (clock skew or backdating attempts)
+    now = datetime.now(timezone.utc)
+    if captured_dt > now + CAPTURED_AT_FUTURE_TOLERANCE:
+        raise HTTPException(status_code=400, detail="captured_at is in the future")
+    if captured_dt < now - CAPTURED_AT_PAST_TOLERANCE:
+        raise HTTPException(status_code=400, detail="captured_at is too far in the past")
+
     # Upload to Supabase Storage
     storage_result = await upload_screenshot(
         file_bytes=file_bytes,
         employee_id=current_user.id,
         captured_at=captured_dt,
         monitor_index=monitor_index,
+        content_type=content_type,
     )
 
     # Save metadata to PostgreSQL
@@ -90,9 +110,19 @@ async def list_screenshots(
     q = q.offset((page - 1) * page_size).limit(page_size)
     items = (await db.execute(q)).scalars().all()
 
-    # Refresh signed URLs before returning
-    for item in items:
-        item.file_url = get_signed_url(item.file_path)
+    # Stored signed URLs are 24h-valid. Only refresh ones that are stale
+    # (uploaded > 23h ago) — single batch call to Supabase, not per-item.
+    now = datetime.now(timezone.utc)
+    refresh_cutoff = now - timedelta(
+        seconds=SIGNED_URL_TTL_SECONDS - URL_REFRESH_THRESHOLD_SECONDS
+    )
+    stale_paths = [i.file_path for i in items if i.uploaded_at < refresh_cutoff]
+
+    if stale_paths:
+        new_urls = get_signed_urls_batch(stale_paths)
+        for item in items:
+            if item.file_path in new_urls:
+                item.file_url = new_urls[item.file_path]
 
     return ScreenshotListResponse(total=total, items=items)
 

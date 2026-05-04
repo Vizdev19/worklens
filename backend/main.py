@@ -41,7 +41,7 @@ allowed_origins = os.getenv(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in allowed_origins if o.strip()],
-    allow_origin_regex=r"https://.*\.vercel\.app",
+    allow_origin_regex=r"https://employee-monitor-dashboard.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

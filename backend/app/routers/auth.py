@@ -54,11 +54,17 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
     if db_token.expires_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=401, detail="Refresh token expired")
 
-    # Rotate: revoke old, issue new
-    db_token.is_revoked = True
-
     user_result = await db.execute(select(User).where(User.id == db_token.user_id))
     user = user_result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=401, detail="Account no longer exists")
+    if not user.is_active:
+        # Revoke and refuse — disabled accounts can't refresh
+        db_token.is_revoked = True
+        raise HTTPException(status_code=403, detail="Account is disabled")
+
+    # Rotate: revoke old, issue new
+    db_token.is_revoked = True
 
     new_access = create_access_token(user.id, user.role)
     new_refresh = create_refresh_token()

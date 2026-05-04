@@ -31,11 +31,13 @@ export function AddEmployeeModal({ onClose }: { onClose: () => void }) {
   });
 
   function generatePassword() {
+    // Cryptographically-secure RNG (Web Crypto API)
     const chars =
       "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+    const bytes = new Uint32Array(12);
+    crypto.getRandomValues(bytes);
     let p = "";
-    for (let i = 0; i < 12; i++)
-      p += chars[Math.floor(Math.random() * chars.length)];
+    for (let i = 0; i < 12; i++) p += chars[bytes[i] % chars.length];
     setPassword(p);
   }
 
