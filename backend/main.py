@@ -1,31 +1,20 @@
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
 
-from app.database import init_db
 from app.routers import auth, screenshots, employees
 from app.config import get_settings
 
 settings = get_settings()
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup: create tables (best-effort — for serverless, tables should exist already)
-    try:
-        await init_db()
-        print("✅ Database initialized")
-    except Exception as e:
-        print(f"⚠️  init_db skipped: {e}")
-    yield
-    print("👋 Shutting down")
-
-
+# NOTE: We do NOT run init_db() in a lifespan handler.
+# Tables are created once via `python -m scripts.create_admin` (which calls
+# init_db() and seeds an admin). Running it on every serverless cold start
+# costs 1-2s per request — not worth it for a no-op.
 app = FastAPI(
     title="Employee Monitor API",
     version="1.0.0",
-    lifespan=lifespan,
 )
 
 # Allowed origins from env var: comma-separated list
