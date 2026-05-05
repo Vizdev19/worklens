@@ -7,6 +7,10 @@ pystray==0.19.5
 pynput==1.7.6
 python-dotenv==1.0.1
 pywebview==5.1
-# pywebview backend (macOS uses pyobjc, included with pywebview on darwin)
+# pywebview backend per-OS
 pyobjc-framework-WebKit==10.3.1; sys_platform == "darwin"
 pyobjc-framework-Cocoa==10.3.1; sys_platform == "darwin"
+pythonnet==3.0.3;                sys_platform == "win32"
+# Windows uses Edge Chromium WebView2 — runtime is pre-installed on Win11.
+# For Win10, the user must install it (small auto-installer):
+# https://developer.microsoft.com/en-us/microsoft-edge/webview2/
