@@ -43,7 +43,11 @@ hidden_imports = [
     "pystray._win32",
     "pystray._gtk",
     "pystray._appindicator",
-    "pkg_resources.py2_warn",
+    # pywebview backends
+    "webview.platforms.cocoa",
+    "webview.platforms.winforms",
+    "webview.platforms.gtk",
+    "webview.platforms.qt",
 ]
 
 a = Analysis(

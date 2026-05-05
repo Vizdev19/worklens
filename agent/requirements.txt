@@ -6,3 +6,7 @@ keyring==25.2.1
 pystray==0.19.5
 pynput==1.7.6
 python-dotenv==1.0.1
+pywebview==5.1
+# pywebview backend (macOS uses pyobjc, included with pywebview on darwin)
+pyobjc-framework-WebKit==10.3.1; sys_platform == "darwin"
+pyobjc-framework-Cocoa==10.3.1; sys_platform == "darwin"

@@ -133,3 +133,33 @@ def _install_linux():
         "Hidden=false\n"
         "NoDisplay=false\n"
     )
+
+
+def uninstall():
+    """Remove the auto-start entry — used on sign-out."""
+    try:
+        if OS == "Darwin":
+            plist = Path(
+                "~/Library/LaunchAgents/com.employeemonitor.agent.plist"
+            ).expanduser()
+            if plist.exists():
+                subprocess.run(["launchctl", "unload", str(plist)], check=False)
+                plist.unlink()
+        elif OS == "Windows":
+            import winreg
+            try:
+                with winreg.OpenKey(
+                    winreg.HKEY_CURRENT_USER,
+                    r"Software\Microsoft\Windows\CurrentVersion\Run",
+                    0, winreg.KEY_SET_VALUE,
+                ) as k:
+                    winreg.DeleteValue(k, "EmployeeMonitor")
+            except FileNotFoundError:
+                pass
+        elif OS == "Linux":
+            f = Path("~/.config/autostart/employee-monitor.desktop").expanduser()
+            if f.exists():
+                f.unlink()
+        print("[autostart] Uninstalled")
+    except Exception as e:
+        print(f"[autostart] Uninstall failed ({e})")
