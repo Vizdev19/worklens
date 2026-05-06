@@ -70,6 +70,10 @@ def capture_job():
     if not state.is_running():
         return
 
+    if not state.is_tracking():
+        state.set_status("paused")
+        return
+
     if idle.is_idle(IDLE_SKIP_MINUTES):
         state.set_status("idle")
         print(f"[main] Idle — skipping capture")

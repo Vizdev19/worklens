@@ -14,12 +14,13 @@ import queue_manager
 
 _lock = threading.Lock()
 _state = {
-    "status": "starting",          # starting | active | idle | offline
+    "status": "starting",          # starting | active | idle | paused | offline
     "last_capture_at": None,       # ISO string or None
     "captures_today": 0,
     "captures_today_date": None,   # date the counter was last reset
     "last_upload_ok": True,        # last upload succeeded?
-    "running": True,               # set False to stop the scheduler
+    "running": True,               # set False to stop the agent (signout/quit)
+    "tracking": True,              # employee toggle — when False, capture_job is a no-op
 }
 
 
@@ -43,6 +44,18 @@ def record_capture(success: bool):
 def is_running() -> bool:
     with _lock:
         return _state["running"]
+
+
+def is_tracking() -> bool:
+    with _lock:
+        return _state["tracking"]
+
+
+def set_tracking(value: bool):
+    with _lock:
+        _state["tracking"] = bool(value)
+        if not _state["tracking"]:
+            _state["status"] = "paused"
 
 
 def stop():
@@ -69,4 +82,5 @@ def snapshot() -> dict:
         "capture_interval_minutes": CAPTURE_INTERVAL_MINUTES,
         "idle_skip_minutes": IDLE_SKIP_MINUTES,
         "running": s["running"],
+        "tracking": s["tracking"],
     }

@@ -103,18 +103,34 @@ HTML = r"""<!doctype html>
     margin-top: 4px;
   }
 
-  .signout {
-    background: white;
-    color: #dc2626;
-    border: 1px solid #fecaca;
-    padding: 9px;
+  .toggle {
+    border: none;
+    padding: 11px;
     border-radius: 8px;
     font-weight: 600;
-    font-size: 13px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.15s;
+    color: white;
+  }
+  .toggle.start { background: #4f46e5; }
+  .toggle.start:hover { background: #4338ca; }
+  .toggle.stop  { background: #dc2626; }
+  .toggle.stop:hover  { background: #b91c1c; }
+  .toggle:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .signout {
+    background: white;
+    color: #64748b;
+    border: 1px solid #e2e8f0;
+    padding: 8px;
+    border-radius: 8px;
+    font-weight: 500;
+    font-size: 12px;
     cursor: pointer;
     transition: all 0.15s;
   }
-  .signout:hover { background: #fef2f2; }
+  .signout:hover { background: #f8fafc; color: #dc2626; border-color: #fecaca; }
   .signout:disabled { opacity: 0.5; cursor: not-allowed; }
 
   .footer {
@@ -153,6 +169,7 @@ HTML = r"""<!doctype html>
 
   <div class="meta" id="meta">Closing this window won't stop monitoring.</div>
 
+  <button class="toggle stop" id="trackBtn">Stop tracking</button>
   <button class="signout" id="signoutBtn">Sign out & quit</button>
 
   <div class="footer">v1.0.0</div>
@@ -181,11 +198,12 @@ HTML = r"""<!doctype html>
       const text = $("statusText");
       dot.className = "dot " + s.status;
       const labels = {
-        active: "Monitoring active",
-        idle:   "Idle — capture paused",
-        offline:"Offline — uploads queued",
-        starting:"Starting…",
-        stopped:"Stopped",
+        active:   "Monitoring active",
+        idle:     "Idle — capture paused",
+        offline:  "Offline — uploads queued",
+        starting: "Starting…",
+        paused:   "Tracking stopped",
+        stopped:  "Stopped",
       };
       text.textContent = labels[s.status] || s.status;
 
@@ -193,10 +211,33 @@ HTML = r"""<!doctype html>
       $("capturesToday").textContent = s.captures_today;
       $("queueSize").textContent = s.queue_size;
       $("interval").textContent = s.capture_interval_minutes + " min";
+
+      // Toggle button reflects the tracking flag
+      const btn = $("trackBtn");
+      if (s.tracking) {
+        btn.className = "toggle stop";
+        btn.textContent = "Stop tracking";
+      } else {
+        btn.className = "toggle start";
+        btn.textContent = "Start tracking";
+      }
     } catch (e) {
       console.error("refresh failed:", e);
     }
   }
+
+  $("trackBtn").addEventListener("click", async () => {
+    const btn = $("trackBtn");
+    btn.disabled = true;
+    try {
+      await pywebview.api.toggle_tracking();
+      await refresh();
+    } catch (e) {
+      alert("Toggle failed: " + e);
+    } finally {
+      btn.disabled = false;
+    }
+  });
 
   $("signoutBtn").addEventListener("click", async () => {
     if (!confirm("Sign out and stop monitoring?")) return;
@@ -230,6 +271,12 @@ class _Api:
 
     def snapshot(self):
         return state.snapshot()
+
+    def toggle_tracking(self):
+        new_value = not state.is_tracking()
+        state.set_tracking(new_value)
+        print(f"[ui] Tracking {'started' if new_value else 'stopped'} by user")
+        return new_value
 
     def sign_out(self):
         # Run async so the JS button click can return
