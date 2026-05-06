@@ -39,6 +39,15 @@ def _redirect_std_to_log():
 
 _redirect_std_to_log()
 
+import single_instance
+
+# Bail out immediately if another agent is already running.
+# Prevents the "duplicate captures every few seconds" bug caused by
+# accidentally launching the agent twice.
+if not single_instance.acquire():
+    print("[main] Another EmployeeMonitor instance is already running. Exiting.")
+    sys.exit(0)
+
 import schedule
 
 import auth
