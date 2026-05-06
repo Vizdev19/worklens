@@ -13,22 +13,23 @@ export function formatBytes(bytes: number | null) {
 }
 
 /**
- * Append Supabase Image Transformation params to a signed URL so we
- * fetch a small thumbnail instead of the full 1920px screenshot.
+ * Append Supabase Image Transformation params if the project is on a
+ * plan that supports them. Currently we just return the original URL
+ * — image transforms are a Pro-plan feature on Supabase, and silently
+ * fail (400/404) on the free tier, leaving the dashboard with broken
+ * thumbnails.
  *
- * Requires Supabase Pro plan or self-hosted. On free tier, the params
- * are silently ignored — the full image is still served. In that case
- * the only real fix is to generate thumbnails at upload time.
+ * Once you upgrade to Supabase Pro (or implement server-side thumbnail
+ * generation in storage.py), flip ENABLE_TRANSFORMS to true.
  *
  * Docs: https://supabase.com/docs/guides/storage/serving/image-transformations
  */
+const ENABLE_TRANSFORMS = false;
+
 export function thumbUrl(url: string, width = 320): string {
   if (!url) return url;
-  // Insert /render/image/sign/ for the transform endpoint
-  // Supabase signed URLs look like:
-  //   https://xxx.supabase.co/storage/v1/object/sign/<bucket>/<path>?token=...
-  // Transform variant:
-  //   https://xxx.supabase.co/storage/v1/render/image/sign/<bucket>/<path>?token=...&width=...
+  if (!ENABLE_TRANSFORMS) return url;
+
   try {
     const u = new URL(url);
     u.pathname = u.pathname.replace(
