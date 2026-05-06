@@ -5,6 +5,7 @@ import { useState } from "react";
 import { format } from "date-fns";
 import { employeesApi, screenshotsApi } from "@/lib/api";
 import { ScreenshotModal } from "@/components/ScreenshotModal";
+import { thumbUrl } from "@/lib/utils";
 
 export default function AllScreenshotsPage() {
   const [employeeId, setEmployeeId] = useState<string>("");
@@ -72,9 +73,10 @@ export default function AllScreenshotsPage() {
                   className="bg-white rounded-lg overflow-hidden border hover:shadow-md transition text-left"
                 >
                   <img
-                    src={s.file_url}
+                    src={thumbUrl(s.file_url)}
                     alt=""
                     loading="lazy"
+                    decoding="async"
                     className="w-full h-28 object-cover"
                   />
                   <div className="p-2 text-xs">

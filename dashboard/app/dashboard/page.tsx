@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { employeesApi, screenshotsApi } from "@/lib/api";
 import { Users, Camera, HardDrive, Activity } from "lucide-react";
-import { formatBytes } from "@/lib/utils";
+import { formatBytes, thumbUrl } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
 import Link from "next/link";
 
@@ -76,8 +76,10 @@ export default function OverviewPage() {
                 className="bg-white rounded-lg overflow-hidden border hover:shadow-md transition"
               >
                 <img
-                  src={s.file_url}
+                  src={thumbUrl(s.file_url)}
                   alt=""
+                  loading="lazy"
+                  decoding="async"
                   className="w-full h-32 object-cover bg-slate-100"
                 />
                 <div className="p-2 text-xs">

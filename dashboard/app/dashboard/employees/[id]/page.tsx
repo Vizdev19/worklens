@@ -8,6 +8,7 @@ import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { employeesApi, screenshotsApi } from "@/lib/api";
 import { ScreenshotModal } from "@/components/ScreenshotModal";
+import { thumbUrl } from "@/lib/utils";
 
 export default function EmployeeDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -94,9 +95,10 @@ export default function EmployeeDetailPage() {
                 className="bg-slate-50 rounded-lg overflow-hidden border hover:shadow-md hover:border-brand-300 transition group"
               >
                 <img
-                  src={s.file_url}
+                  src={thumbUrl(s.file_url)}
                   alt=""
                   loading="lazy"
+                  decoding="async"
                   className="w-full h-24 object-cover"
                 />
                 <div className="p-1.5 text-[11px] text-slate-600 group-hover:text-brand-700">

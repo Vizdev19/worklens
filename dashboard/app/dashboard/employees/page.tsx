@@ -1,19 +1,31 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { employeesApi } from "@/lib/api";
 import Link from "next/link";
-import { ChevronRight, UserPlus } from "lucide-react";
+import { ChevronRight, UserPlus, Search, X } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { AddEmployeeModal } from "@/components/AddEmployeeModal";
 
 export default function EmployeesPage() {
   const [showAdd, setShowAdd] = useState(false);
+  const [query, setQuery] = useState("");
+
   const { data: employees, isLoading } = useQuery({
     queryKey: ["employees"],
     queryFn: employeesApi.list,
   });
+
+  const filtered = useMemo(() => {
+    if (!employees) return [];
+    const q = query.trim().toLowerCase();
+    if (!q) return employees;
+    return employees.filter((e) =>
+      e.full_name.toLowerCase().includes(q) ||
+      e.email.toLowerCase().includes(q)
+    );
+  }, [employees, query]);
 
   return (
     <div className="p-8 space-y-6">
@@ -22,6 +34,8 @@ export default function EmployeesPage() {
           <h1 className="text-2xl font-bold">Employees</h1>
           <p className="text-slate-500 text-sm">
             {employees?.length ?? 0} team member(s)
+            {query && filtered.length !== employees?.length &&
+              ` · ${filtered.length} matching`}
           </p>
         </div>
 
@@ -33,6 +47,33 @@ export default function EmployeesPage() {
           Add Employee
         </button>
       </div>
+
+      {/* Search bar */}
+      {!!employees?.length && (
+        <div className="relative max-w-md">
+          <Search
+            size={16}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+          />
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search by name or email…"
+            className="w-full pl-9 pr-9 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-brand-500 focus:outline-none"
+            autoFocus
+          />
+          {query && (
+            <button
+              onClick={() => setQuery("")}
+              aria-label="Clear search"
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-slate-100 text-slate-500"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="bg-white border rounded-xl overflow-hidden">
         {isLoading ? (
@@ -48,9 +89,19 @@ export default function EmployeesPage() {
               Add your first employee
             </button>
           </div>
+        ) : filtered.length === 0 ? (
+          <div className="p-8 text-center text-slate-500">
+            <p>No employees match "{query}"</p>
+            <button
+              onClick={() => setQuery("")}
+              className="text-brand-600 hover:underline text-sm mt-2"
+            >
+              Clear search
+            </button>
+          </div>
         ) : (
           <ul className="divide-y">
-            {employees.map((e) => (
+            {filtered.map((e) => (
               <li key={e.id}>
                 <Link
                   href={`/dashboard/employees/${e.id}`}
