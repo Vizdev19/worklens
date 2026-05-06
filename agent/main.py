@@ -14,6 +14,31 @@ import sys
 import threading
 import time
 
+# In Windows GUI builds (PyInstaller console=False), sys.stdout/stderr can be
+# None, which makes any `print()` raise. Redirect them to a log file so we
+# don't lose visibility AND don't crash on print.
+def _redirect_std_to_log():
+    if sys.stdout is not None and sys.stderr is not None:
+        return  # already attached
+    log_dir = os.path.join(
+        os.path.expanduser("~"),
+        ("AppData/Local/EmployeeMonitor" if platform.system() == "Windows"
+         else "Library/Logs/EmployeeMonitor" if platform.system() == "Darwin"
+         else ".local/state/EmployeeMonitor"),
+    )
+    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.path.join(log_dir, "agent.log")
+    try:
+        f = open(log_path, "a", buffering=1, encoding="utf-8")
+        sys.stdout = f
+        sys.stderr = f
+    except Exception:
+        # Worst case — give print() a no-op file
+        sys.stdout = open(os.devnull, "w")
+        sys.stderr = sys.stdout
+
+_redirect_std_to_log()
+
 import schedule
 
 import auth

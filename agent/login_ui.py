@@ -22,7 +22,11 @@ OS = platform.system()
 
 def show_login() -> bool:
     """Show login UI. Return True on success, False on cancel/failure."""
-    has_tty = sys.stdin.isatty()
+    # On windowed (no-console) PyInstaller builds, sys.stdin is None — guard.
+    try:
+        has_tty = bool(sys.stdin and sys.stdin.isatty())
+    except (AttributeError, ValueError):
+        has_tty = False
 
     # OS-specific GUI first
     try:
