@@ -23,7 +23,7 @@ from dotenv import load_dotenv
 #     1. Edit AGENT_VERSION
 #     2. git commit
 #     3. git tag agent-v<same-version>
-__version__ = "1.0.3"
+__version__ = "1.0.4"
 AGENT_VERSION = __version__
 
 

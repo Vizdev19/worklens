@@ -288,16 +288,50 @@ class _Api:
 def open_window(on_signout):
     """Blocking — runs the pywebview event loop on the main thread."""
     api = _Api(on_signout)
-    webview.create_window(
-        title="Employee Monitor",
-        html=HTML,
-        js_api=api,
-        width=380,
-        height=520,
-        resizable=False,
-        on_top=False,
-    )
     try:
+        webview.create_window(
+            title="Employee Monitor",
+            html=HTML,
+            js_api=api,
+            width=380,
+            height=520,
+            resizable=False,
+            on_top=False,
+        )
         webview.start(debug=False)
     except Exception as e:
         print(f"[ui] pywebview failed: {e}; running headless")
+        _notify_user_ui_unavailable(str(e))
+
+
+def _notify_user_ui_unavailable(reason: str):
+    """
+    Show a native OS notification so the employee knows the UI failed
+    even though monitoring is still running. Falls back silently if the
+    OS-specific notification API itself isn't available.
+    """
+    import platform
+
+    msg = (
+        "Employee Monitor's status window couldn't open, but monitoring "
+        "is still active in the background.\n\n"
+        f"Reason: {reason}\n\n"
+        "On Windows, install Microsoft Edge WebView2 Runtime:\n"
+        "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
+    )
+
+    try:
+        if platform.system() == "Windows":
+            import ctypes
+            # MB_OK | MB_ICONWARNING = 0x30
+            ctypes.windll.user32.MessageBoxW(0, msg, "Employee Monitor", 0x30)
+        elif platform.system() == "Darwin":
+            import subprocess
+            esc = msg.replace('"', "'")
+            subprocess.run(
+                ["osascript", "-e",
+                 f'display notification "{esc}" with title "Employee Monitor"'],
+                check=False,
+            )
+    except Exception as e:
+        print(f"[ui] notification fallback failed: {e}")
