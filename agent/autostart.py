@@ -126,12 +126,12 @@ def _install_windows():
 
 def _create_windows_start_menu_shortcut(exe: str):
     """
-    Drop a clickable shortcut in the user's Start Menu so they can find
-    EmployeeMonitor without remembering where they unzipped it.
+    Drop a real .lnk shortcut in the user's Start Menu so they can
+    re-launch the app from anywhere — including after sign-out.
 
-    Uses the .url InternetShortcut format because it doesn't require
-    pywin32 / pythoncom — pure text file. Windows Explorer renders the
-    file as a clickable item with our exe's icon.
+    We use PowerShell's built-in WScript.Shell COM to write a proper
+    .lnk file, since pywin32 isn't a dependency. No new pip packages
+    needed; PowerShell ships with every modern Windows.
     """
     try:
         appdata = os.environ.get("APPDATA")
@@ -139,14 +139,31 @@ def _create_windows_start_menu_shortcut(exe: str):
             return
         start_menu = Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs"
         start_menu.mkdir(parents=True, exist_ok=True)
-        shortcut = start_menu / "Employee Monitor.url"
-        shortcut.write_text(
-            "[InternetShortcut]\n"
-            f"URL=file:///{exe.replace(chr(92), '/')}\n"
-            f"IconFile={exe}\n"
-            "IconIndex=0\n"
+        shortcut = start_menu / "Employee Monitor.lnk"
+
+        # Escape backslashes and quotes for PowerShell single-quoted strings
+        def _ps(s: str) -> str:
+            return s.replace("'", "''")
+
+        ps = (
+            "$ws = New-Object -ComObject WScript.Shell;"
+            f"$s = $ws.CreateShortcut('{_ps(str(shortcut))}');"
+            f"$s.TargetPath = '{_ps(exe)}';"
+            f"$s.WorkingDirectory = '{_ps(str(Path(exe).parent))}';"
+            f"$s.IconLocation = '{_ps(exe)}';"
+            "$s.Description = 'Employee Monitor';"
+            "$s.Save();"
         )
-        print(f"[autostart] Start Menu shortcut: {shortcut}")
+        subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            check=False,
+            timeout=15,
+        )
+        if shortcut.exists():
+            print(f"[autostart] Start Menu shortcut created: {shortcut}")
+        else:
+            print(f"[autostart] PowerShell ran but shortcut not found at {shortcut}")
     except Exception as e:
         print(f"[autostart] Could not create Start Menu shortcut ({e})")
 
@@ -187,16 +204,18 @@ def uninstall():
                     winreg.DeleteValue(k, "EmployeeMonitor")
             except FileNotFoundError:
                 pass
-            # Remove the Start Menu shortcut too
+            # Remove the Start Menu shortcut too (.lnk now, .url for older builds)
             appdata = os.environ.get("APPDATA")
             if appdata:
-                shortcut = (Path(appdata) / "Microsoft" / "Windows" /
-                            "Start Menu" / "Programs" / "Employee Monitor.url")
-                if shortcut.exists():
-                    try:
-                        shortcut.unlink()
-                    except Exception:
-                        pass
+                start_menu = (Path(appdata) / "Microsoft" / "Windows" /
+                              "Start Menu" / "Programs")
+                for name in ("Employee Monitor.lnk", "Employee Monitor.url"):
+                    f = start_menu / name
+                    if f.exists():
+                        try:
+                            f.unlink()
+                        except Exception:
+                            pass
         elif OS == "Linux":
             f = Path("~/.config/autostart/employee-monitor.desktop").expanduser()
             if f.exists():
