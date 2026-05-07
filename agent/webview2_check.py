@@ -63,10 +63,16 @@ def _bootstrapper_path() -> Optional[Path]:
     """Locate the bundled MicrosoftEdgeWebview2Setup.exe."""
     candidates = []
 
-    # PyInstaller one-folder mode → files are next to the .exe
     if getattr(sys, "frozen", False):
-        candidates.append(Path(sys.executable).parent)
-        # PyInstaller _MEIPASS for one-file mode (we use one-folder, but support both)
+        exe_dir = Path(sys.executable).parent
+        # one-folder bundle layout (PyInstaller 6.x):
+        #   EmployeeMonitor.exe      ← exe_dir
+        #   _internal/
+        #     MicrosoftEdgeWebview2Setup.exe
+        #     ... (datas live here)
+        candidates.append(exe_dir / "_internal")
+        candidates.append(exe_dir)
+        # one-file bundle: PyInstaller extracts everything into _MEIPASS
         if hasattr(sys, "_MEIPASS"):
             candidates.append(Path(sys._MEIPASS))
 
