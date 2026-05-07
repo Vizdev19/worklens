@@ -30,6 +30,12 @@ env_file = HERE / ".env"
 if env_file.exists():
     datas.append((str(env_file), "."))
 
+# Bundle the WebView2 Evergreen Bootstrapper if CI dropped it here
+# (~150 KB; runs silently on first launch when WebView2 is missing).
+webview2_setup = HERE / "MicrosoftEdgeWebview2Setup.exe"
+if webview2_setup.exists():
+    datas.append((str(webview2_setup), "."))
+
 # Bundle the icon if present (used for the tray and app icon)
 icon_path = None
 if (HERE / "icon.icns").exists():

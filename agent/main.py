@@ -171,7 +171,12 @@ def main():
     sched_thread = threading.Thread(target=scheduler_loop, daemon=True)
     sched_thread.start()
 
-    # 5. Show status window on main thread (blocks until window closed)
+    # 5. Ensure WebView2 runtime is installed (Windows only — no-op elsewhere)
+    if OS == "Windows":
+        import webview2_check
+        webview2_check.ensure_installed()
+
+    # 6. Show status window on main thread (blocks until window closed)
     print("[main] Opening status window")
     status_window.open_window(on_signout=on_signout)
 

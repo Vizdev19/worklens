@@ -46,12 +46,16 @@ You'll be asked twice (once each):
 2. Windows SmartScreen will say *"Windows protected your PC"*
 3. Click **More info** → **Run anyway**
 
-### WebView2 Runtime (Windows 10 only)
+### WebView2 Runtime
 
-The status window uses Microsoft Edge WebView2:
-- **Windows 11:** Pre-installed — nothing to do.
-- **Windows 10:** May not have it. If the status window appears blank, install the
-  [Evergreen Standalone Installer](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (X64).
+The status window uses Microsoft Edge WebView2. The agent bundles the
+WebView2 Evergreen Bootstrapper (~150 KB) and auto-installs the runtime
+silently on first launch if it isn't already present. No manual step
+needed.
+
+If the auto-install fails (locked-down corporate machine, no internet at
+first launch, etc.), download and run the bootstrapper manually:
+[https://go.microsoft.com/fwlink/p/?LinkId=2124703](https://go.microsoft.com/fwlink/p/?LinkId=2124703)
 
 ### Sign In
 

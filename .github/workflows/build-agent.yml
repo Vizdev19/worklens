@@ -66,6 +66,19 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install pyinstaller
 
+      - name: Download WebView2 Evergreen Bootstrapper
+        working-directory: agent
+        shell: pwsh
+        run: |
+          # Microsoft's permanent redirect URL for the Evergreen Bootstrapper.
+          # ~150 KB; gets bundled into the .exe so first-launch can install
+          # the actual ~150 MB runtime if the user is on a Win10 box without it.
+          Invoke-WebRequest `
+            -Uri 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' `
+            -OutFile 'MicrosoftEdgeWebview2Setup.exe' `
+            -UseBasicParsing
+          Get-Item MicrosoftEdgeWebview2Setup.exe | Select-Object Length, Name
+
       - name: Build .exe
         working-directory: agent
         shell: pwsh
