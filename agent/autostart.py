@@ -119,6 +119,37 @@ def _install_windows():
     ) as k:
         winreg.SetValueEx(k, "EmployeeMonitor", 0, winreg.REG_SZ, exe)
 
+    # Drop a Start Menu shortcut so the user can find the app even
+    # after they forget where they extracted the ZIP.
+    _create_windows_start_menu_shortcut(exe)
+
+
+def _create_windows_start_menu_shortcut(exe: str):
+    """
+    Drop a clickable shortcut in the user's Start Menu so they can find
+    EmployeeMonitor without remembering where they unzipped it.
+
+    Uses the .url InternetShortcut format because it doesn't require
+    pywin32 / pythoncom — pure text file. Windows Explorer renders the
+    file as a clickable item with our exe's icon.
+    """
+    try:
+        appdata = os.environ.get("APPDATA")
+        if not appdata:
+            return
+        start_menu = Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs"
+        start_menu.mkdir(parents=True, exist_ok=True)
+        shortcut = start_menu / "Employee Monitor.url"
+        shortcut.write_text(
+            "[InternetShortcut]\n"
+            f"URL=file:///{exe.replace(chr(92), '/')}\n"
+            f"IconFile={exe}\n"
+            "IconIndex=0\n"
+        )
+        print(f"[autostart] Start Menu shortcut: {shortcut}")
+    except Exception as e:
+        print(f"[autostart] Could not create Start Menu shortcut ({e})")
+
 
 def _install_linux():
     autostart_dir = Path("~/.config/autostart").expanduser()
@@ -156,6 +187,16 @@ def uninstall():
                     winreg.DeleteValue(k, "EmployeeMonitor")
             except FileNotFoundError:
                 pass
+            # Remove the Start Menu shortcut too
+            appdata = os.environ.get("APPDATA")
+            if appdata:
+                shortcut = (Path(appdata) / "Microsoft" / "Windows" /
+                            "Start Menu" / "Programs" / "Employee Monitor.url")
+                if shortcut.exists():
+                    try:
+                        shortcut.unlink()
+                    except Exception:
+                        pass
         elif OS == "Linux":
             f = Path("~/.config/autostart/employee-monitor.desktop").expanduser()
             if f.exists():

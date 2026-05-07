@@ -396,7 +396,17 @@ HTML = r"""<!doctype html>
     try {
       await api("/api/sign-out", { method: "POST" });
       // Server will exit shortly; replace tab with a friendly message
-      document.body.innerHTML = '<div style="padding:40px;text-align:center;color:#64748b;font-family:-apple-system,sans-serif"><h2>Signed out.</h2><p>You can close this tab.</p></div>';
+      document.body.innerHTML = `
+        <div style="padding:60px;text-align:center;color:#64748b;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:420px;margin:0 auto;">
+          <div style="font-size:48px;margin-bottom:8px;">👋</div>
+          <h2 style="color:#0f172a;margin-bottom:8px;">Signed out</h2>
+          <p>Monitoring has stopped. You can close this tab.</p>
+          <p style="margin-top:32px;font-size:13px;line-height:1.6;">
+            To start again, launch <strong>EmployeeMonitor</strong>:
+            <br>• <strong>macOS:</strong> Spotlight (⌘Space) → "Employee Monitor"
+            <br>• <strong>Windows:</strong> open the EmployeeMonitor folder and double-click EmployeeMonitor.exe
+          </p>
+        </div>`;
     } catch (e) {
       alert("Sign out failed: " + e.message);
       btn.disabled = false;
