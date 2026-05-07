@@ -2,10 +2,15 @@
 Employee Monitor Agent — Entry Point
 
 Threading model:
-  - Main thread runs the pywebview status window (UI requires main thread on macOS).
+  - Main thread sleeps in a loop while the agent runs.
   - Background thread runs the capture+upload scheduler.
-  - Closing the window does NOT stop the agent — the scheduler keeps running.
-  - "Sign out" stops the scheduler, clears credentials, removes auto-start, exits.
+  - Background thread runs an HTTP server (ui.py); the user's browser
+    is opened to it on first launch.
+  - Closing the browser tab does NOT stop the agent.
+  - A second EmployeeMonitor.exe launch detects the running instance
+    via the single-instance lock and re-opens the same URL in browser.
+  - "Sign out" stops the scheduler, clears credentials, removes
+    auto-start, and exits.
 """
 
 import os
@@ -39,13 +44,23 @@ def _redirect_std_to_log():
 
 _redirect_std_to_log()
 
-import single_instance
+import webbrowser
 
-# Bail out immediately if another agent is already running.
-# Prevents the "duplicate captures every few seconds" bug caused by
-# accidentally launching the agent twice.
+import single_instance
+import ui
+
+# If another agent is already running, just re-open its UI in the
+# user's browser and exit cleanly.
 if not single_instance.acquire():
-    print("[main] Another EmployeeMonitor instance is already running. Exiting.")
+    existing_url = ui.read_url_from_file()
+    if existing_url:
+        try:
+            webbrowser.open(existing_url)
+            print(f"[main] Another instance is already running; re-opened {existing_url}")
+        except Exception as e:
+            print(f"[main] Could not reopen UI: {e}")
+    else:
+        print("[main] Another EmployeeMonitor instance is already running.")
     sys.exit(0)
 
 import schedule
@@ -56,7 +71,6 @@ import capture
 import idle
 import queue_manager
 import state
-import status_window
 import uploader
 from config import CAPTURE_INTERVAL_MINUTES, IDLE_SKIP_MINUTES
 
@@ -171,17 +185,11 @@ def main():
     sched_thread = threading.Thread(target=scheduler_loop, daemon=True)
     sched_thread.start()
 
-    # 5. Ensure WebView2 runtime is installed (Windows only — no-op elsewhere)
-    if OS == "Windows":
-        import webview2_check
-        webview2_check.ensure_installed()
+    # 5. Start the embedded HTTP UI server, then open it in the user's browser
+    ui.start_server(on_signout=on_signout)
+    ui.open_in_browser()
 
-    # 6. Show status window on main thread (blocks until window closed)
-    print("[main] Opening status window")
-    status_window.open_window(on_signout=on_signout)
-
-    # 6. Window closed — keep agent running headless until LaunchAgent stops us
-    print("[main] Window closed — continuing in background")
+    # 6. Keep main thread alive until sign-out / OS shutdown
     while state.is_running():
         time.sleep(5)
 

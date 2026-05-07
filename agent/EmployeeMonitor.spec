@@ -30,11 +30,8 @@ env_file = HERE / ".env"
 if env_file.exists():
     datas.append((str(env_file), "."))
 
-# Bundle the WebView2 Evergreen Bootstrapper if CI dropped it here
-# (~150 KB; runs silently on first launch when WebView2 is missing).
-webview2_setup = HERE / "MicrosoftEdgeWebview2Setup.exe"
-if webview2_setup.exists():
-    datas.append((str(webview2_setup), "."))
+# (WebView2 bootstrapper no longer needed — UI runs in the user's
+# browser via an embedded HTTP server, see agent/ui.py)
 
 # Bundle the icon if present (used for the tray and app icon)
 icon_path = None
@@ -43,17 +40,13 @@ if (HERE / "icon.icns").exists():
 elif (HERE / "icon.ico").exists():
     icon_path = str(HERE / "icon.ico")      # Windows
 
-# Hidden imports — pystray + plugins
+# Hidden imports — pystray + plugins (kept for compatibility; we no
+# longer ship pywebview).
 hidden_imports = [
     "pystray._darwin",
     "pystray._win32",
     "pystray._gtk",
     "pystray._appindicator",
-    # pywebview backends
-    "webview.platforms.cocoa",
-    "webview.platforms.winforms",
-    "webview.platforms.gtk",
-    "webview.platforms.qt",
 ]
 
 a = Analysis(

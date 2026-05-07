@@ -46,16 +46,15 @@ You'll be asked twice (once each):
 2. Windows SmartScreen will say *"Windows protected your PC"*
 3. Click **More info** → **Run anyway**
 
-### WebView2 Runtime
+### Status Window
 
-The status window uses Microsoft Edge WebView2. The agent bundles the
-WebView2 Evergreen Bootstrapper (~150 KB) and auto-installs the runtime
-silently on first launch if it isn't already present. No manual step
-needed.
+The status panel runs as a small page in your default browser
+(Edge, Chrome, Firefox — whatever you have). On first launch the agent
+opens it automatically. Closing the tab won't stop monitoring.
 
-If the auto-install fails (locked-down corporate machine, no internet at
-first launch, etc.), download and run the bootstrapper manually:
-[https://go.microsoft.com/fwlink/p/?LinkId=2124703](https://go.microsoft.com/fwlink/p/?LinkId=2124703)
+To re-open the panel later, just double-click `EmployeeMonitor.exe`
+again — the running agent will pop the same page back up in your
+browser.
 
 ### Sign In
 
