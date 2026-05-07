@@ -1,30 +1,71 @@
+"""
+Auth and credential management.
+
+Tokens live in the OS keychain. Reads are cached in memory after the
+first hit so we don't trigger one keychain ACL prompt per UI refresh
+(macOS pops a "Python wants to use your keychain" dialog for every
+read on unsigned builds — that flooded the user with prompts).
+
+Cache rules:
+  - Populated on login() and refresh_tokens() with the values we just
+    received from the backend.
+  - On startup, populated lazily by the first read (one prompt per
+    key, then memoized).
+  - Cleared on logout().
+"""
+
 import keyring
-import requests
-import json
 import platform
+import threading
 from typing import Optional
-from datetime import datetime, timezone
+
+import requests
+
 from config import SERVER_URL, KEYRING_SERVICE
 
 OS = platform.system()
 
+_KEYS = ("access_token", "refresh_token", "employee_id", "full_name")
+_cache: dict = {}
+_lock = threading.Lock()
+
+
+# ── Keychain wrappers ──────────────────────────────────────────────────────
 
 def _store(key: str, value: str):
     keyring.set_password(KEYRING_SERVICE, key, value)
+    with _lock:
+        _cache[key] = value
+
 
 def _load(key: str) -> Optional[str]:
-    return keyring.get_password(KEYRING_SERVICE, key)
+    """Return cached value if we have one; otherwise hit keychain once."""
+    with _lock:
+        if key in _cache:
+            return _cache[key]
+    value = keyring.get_password(KEYRING_SERVICE, key)
+    with _lock:
+        _cache[key] = value  # cache None too — prevents re-prompts on misses
+    return value
 
-def _clear():
-    for key in ("access_token", "refresh_token", "employee_id", "full_name"):
+
+def _clear_keychain():
+    for key in _KEYS:
         try:
             keyring.delete_password(KEYRING_SERVICE, key)
         except Exception:
             pass
 
 
+def _clear_cache():
+    with _lock:
+        _cache.clear()
+
+
+# ── Public API ─────────────────────────────────────────────────────────────
+
 def login(email: str, password: str) -> bool:
-    """Authenticate and persist tokens to OS keychain."""
+    """Authenticate and persist tokens to OS keychain + cache."""
     try:
         res = requests.post(
             f"{SERVER_URL}/auth/login",
@@ -57,7 +98,8 @@ def refresh_tokens() -> bool:
             timeout=10,
         )
         if res.status_code != 200:
-            _clear()
+            _clear_keychain()
+            _clear_cache()
             return False
 
         data = res.json()
@@ -71,14 +113,18 @@ def refresh_tokens() -> bool:
 def get_access_token() -> Optional[str]:
     return _load("access_token")
 
+
 def get_employee_id() -> Optional[str]:
     return _load("employee_id")
+
 
 def get_full_name() -> Optional[str]:
     return _load("full_name")
 
+
 def is_logged_in() -> bool:
     return bool(_load("access_token") and _load("refresh_token"))
+
 
 def logout():
     refresh_token = _load("refresh_token")
@@ -91,4 +137,5 @@ def logout():
             )
         except Exception:
             pass
-    _clear()
+    _clear_keychain()
+    _clear_cache()
