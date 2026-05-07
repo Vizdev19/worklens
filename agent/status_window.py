@@ -172,7 +172,7 @@ HTML = r"""<!doctype html>
   <button class="toggle stop" id="trackBtn">Stop tracking</button>
   <button class="signout" id="signoutBtn">Sign out & quit</button>
 
-  <div class="footer">v1.0.0</div>
+  <div class="footer" id="footer">v—</div>
 
 <script>
   const $ = id => document.getElementById(id);
@@ -211,6 +211,7 @@ HTML = r"""<!doctype html>
       $("capturesToday").textContent = s.captures_today;
       $("queueSize").textContent = s.queue_size;
       $("interval").textContent = s.capture_interval_minutes + " min";
+      if (s.version) $("footer").textContent = "v" + s.version;
 
       // Toggle button reflects the tracking flag
       const btn = $("trackBtn");

@@ -145,7 +145,8 @@ def check_platform_permissions():
 # ── Main ────────────────────────────────────────────────────────────────────
 
 def main():
-    print(f"[main] Starting Employee Monitor (OS: {OS})")
+    from config import AGENT_VERSION
+    print(f"[main] Starting Employee Monitor v{AGENT_VERSION} (OS: {OS})")
 
     # 1. Auth — block until logged in
     if not auth.is_logged_in():

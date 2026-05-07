@@ -66,12 +66,13 @@ def stop():
 
 def snapshot() -> dict:
     """Return everything the UI needs to render."""
-    from config import CAPTURE_INTERVAL_MINUTES, IDLE_SKIP_MINUTES
+    from config import CAPTURE_INTERVAL_MINUTES, IDLE_SKIP_MINUTES, AGENT_VERSION
 
     with _lock:
         s = dict(_state)
 
     return {
+        "version": AGENT_VERSION,
         "full_name": auth.get_full_name() or "",
         "email_or_id": auth.get_employee_id() or "",
         "status": s["status"],

@@ -17,6 +17,16 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 
+# Bake-in version. Bumped on each release; CI replaces this on tag builds
+# via a sed-style step (see .github/workflows/build-agent.yml — TODO).
+# For now, set this manually before tagging:
+#     1. Edit AGENT_VERSION
+#     2. git commit
+#     3. git tag agent-v<same-version>
+__version__ = "1.0.3"
+AGENT_VERSION = __version__
+
+
 # ── Production defaults (baked into the packaged binary) ───────────────────
 # Update SERVER_URL when your prod backend URL changes.
 PRODUCTION_DEFAULTS = {
