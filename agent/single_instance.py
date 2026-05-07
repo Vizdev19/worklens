@@ -13,10 +13,10 @@ when the process dies the OS releases it automatically.
   - Windows: msvcrt.locking with LK_NBLCK
 """
 
-import os
 import platform
-import sys
 from pathlib import Path
+
+from paths import state_dir
 
 OS = platform.system()
 
@@ -24,15 +24,7 @@ _lock_handle = None  # keep a module-level reference so GC doesn't release it
 
 
 def _lock_path() -> Path:
-    if OS == "Windows":
-        base = Path(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")))
-        d = base / "EmployeeMonitor"
-    elif OS == "Darwin":
-        d = Path("~/Library/Application Support/EmployeeMonitor").expanduser()
-    else:
-        d = Path("~/.local/state/EmployeeMonitor").expanduser()
-    d.mkdir(parents=True, exist_ok=True)
-    return d / "agent.lock"
+    return state_dir() / "agent.lock"
 
 
 def acquire() -> bool:

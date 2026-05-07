@@ -1,18 +1,43 @@
 """
 SQLite-based offline queue.
 Stores failed uploads locally and retries them when connectivity returns.
+
+The DB lives in the per-user state dir (NOT the install folder). On
+PyInstaller bundles the install folder is read-only / temp-extracted,
+so writing the queue there would either fail or get wiped.
 """
 
-import sqlite3
 import os
-import json
-from datetime import datetime
+import platform
+import sqlite3
+from typing import List, Dict
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "queue.db")
+from paths import state_dir
+
+DB_PATH = str(state_dir() / "queue.db")
+_PERMS_TIGHTENED = False
+
+
+def _tighten_db_perms():
+    """Make queue.db user-readable only (POSIX). The DB contains image
+    bytes — set 0600 so other users on the box can't read screenshots."""
+    global _PERMS_TIGHTENED
+    if _PERMS_TIGHTENED or platform.system() == "Windows":
+        return
+    try:
+        os.chmod(DB_PATH, 0o600)
+        _PERMS_TIGHTENED = True
+    except OSError:
+        pass
+
+
+def _connect() -> sqlite3.Connection:
+    conn = sqlite3.connect(DB_PATH, timeout=5)
+    return conn
 
 
 def init_queue():
-    with sqlite3.connect(DB_PATH) as conn:
+    with _connect() as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS pending_uploads (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -25,10 +50,11 @@ def init_queue():
             )
         """)
         conn.commit()
+    _tighten_db_perms()
 
 
 def enqueue(image_bytes: bytes, monitor_idx: int, os_platform: str, captured_at: str):
-    with sqlite3.connect(DB_PATH) as conn:
+    with _connect() as conn:
         conn.execute(
             "INSERT INTO pending_uploads (image_bytes, monitor_idx, os_platform, captured_at) VALUES (?,?,?,?)",
             (image_bytes, monitor_idx, os_platform, captured_at),
@@ -36,8 +62,8 @@ def enqueue(image_bytes: bytes, monitor_idx: int, os_platform: str, captured_at:
         conn.commit()
 
 
-def get_pending(limit: int = 5) -> list[dict]:
-    with sqlite3.connect(DB_PATH) as conn:
+def get_pending(limit: int = 5) -> List[Dict]:
+    with _connect() as conn:
         rows = conn.execute(
             "SELECT id, image_bytes, monitor_idx, os_platform, captured_at, attempts "
             "FROM pending_uploads WHERE attempts < 5 ORDER BY created_at LIMIT ?",
@@ -58,13 +84,13 @@ def get_pending(limit: int = 5) -> list[dict]:
 
 
 def mark_done(item_id: int):
-    with sqlite3.connect(DB_PATH) as conn:
+    with _connect() as conn:
         conn.execute("DELETE FROM pending_uploads WHERE id = ?", (item_id,))
         conn.commit()
 
 
 def increment_attempts(item_id: int):
-    with sqlite3.connect(DB_PATH) as conn:
+    with _connect() as conn:
         conn.execute(
             "UPDATE pending_uploads SET attempts = attempts + 1 WHERE id = ?",
             (item_id,),
@@ -73,5 +99,5 @@ def increment_attempts(item_id: int):
 
 
 def queue_size() -> int:
-    with sqlite3.connect(DB_PATH) as conn:
+    with _connect() as conn:
         return conn.execute("SELECT COUNT(*) FROM pending_uploads").fetchone()[0]

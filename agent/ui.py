@@ -21,8 +21,6 @@ Security:
 """
 
 import json
-import os
-import platform
 import secrets
 import threading
 import webbrowser
@@ -32,6 +30,7 @@ from socketserver import ThreadingMixIn
 from typing import Callable, Optional
 
 import state
+from paths import state_dir
 
 # Module-level state — set by start_server()
 _token: Optional[str] = None
@@ -92,19 +91,8 @@ def read_url_from_file() -> Optional[str]:
 
 # ── Storage path for the URL handoff file ──────────────────────────────────
 
-def _state_dir() -> Path:
-    if platform.system() == "Windows":
-        d = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "EmployeeMonitor"
-    elif platform.system() == "Darwin":
-        d = Path.home() / "Library" / "Application Support" / "EmployeeMonitor"
-    else:
-        d = Path.home() / ".local" / "state" / "EmployeeMonitor"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
-
-
 def _url_file_path() -> Path:
-    return _state_dir() / "agent.url"
+    return state_dir() / "agent.url"
 
 
 def _write_url_file(url: str):

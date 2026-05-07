@@ -33,6 +33,9 @@ _lock = threading.Lock()
 # ── Keychain wrappers ──────────────────────────────────────────────────────
 
 def _store(key: str, value: str):
+    # Update the cache only AFTER the keyring write succeeds. Otherwise
+    # a failing keychain write would leave _cache out of sync with disk
+    # (cache says "yes", keychain says no).
     keyring.set_password(KEYRING_SERVICE, key, value)
     with _lock:
         _cache[key] = value
@@ -76,10 +79,17 @@ def login(email: str, password: str) -> bool:
             return False
 
         data = res.json()
-        _store("access_token", data["access_token"])
-        _store("refresh_token", data["refresh_token"])
-        _store("employee_id", data["employee_id"])
-        _store("full_name", data["full_name"])
+        # Keyring writes can raise (denied, no backend, locked) — catch
+        # and treat as a login failure rather than crashing the agent.
+        try:
+            _store("access_token", data["access_token"])
+            _store("refresh_token", data["refresh_token"])
+            _store("employee_id", data["employee_id"])
+            _store("full_name", data["full_name"])
+        except Exception as e:
+            print(f"[auth] Could not save credentials to keychain: {e}")
+            _clear_cache()
+            return False
         return True
     except requests.RequestException:
         return False

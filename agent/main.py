@@ -25,20 +25,14 @@ import time
 def _redirect_std_to_log():
     if sys.stdout is not None and sys.stderr is not None:
         return  # already attached
-    log_dir = os.path.join(
-        os.path.expanduser("~"),
-        ("AppData/Local/EmployeeMonitor" if platform.system() == "Windows"
-         else "Library/Logs/EmployeeMonitor" if platform.system() == "Darwin"
-         else ".local/state/EmployeeMonitor"),
-    )
-    os.makedirs(log_dir, exist_ok=True)
-    log_path = os.path.join(log_dir, "agent.log")
     try:
+        from paths import log_dir as _log_dir
+        log_path = _log_dir() / "agent.log"
         f = open(log_path, "a", buffering=1, encoding="utf-8")
         sys.stdout = f
         sys.stderr = f
     except Exception:
-        # Worst case — give print() a no-op file
+        # Worst case — give print() a no-op file so it doesn't crash
         sys.stdout = open(os.devnull, "w")
         sys.stderr = sys.stdout
 
@@ -95,8 +89,16 @@ def capture_job():
 
     state.set_status("active")
     screenshots = capture.capture_all_monitors()
-    upload_ok = True
 
+    # If capture itself returned nothing (every monitor errored), don't
+    # claim success — that would mislead the UI / dashboard heartbeat.
+    if not screenshots:
+        print("[main] No screenshots captured (all monitors failed)")
+        state.record_capture(success=False)
+        uploader.flush_queue()
+        return
+
+    upload_ok = True
     for shot in screenshots:
         try:
             uploader.upload_screenshot(
