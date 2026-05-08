@@ -72,6 +72,8 @@ async def upload(
         user_id=current_user.id,
         file_path=storage_result["file_path"],
         file_url=storage_result["file_url"],
+        thumbnail_path=storage_result.get("thumbnail_path"),
+        thumbnail_url=storage_result.get("thumbnail_url"),
         file_size=len(file_bytes),
         monitor_index=monitor_index,
         os_platform=os_platform,
@@ -111,18 +113,24 @@ async def list_screenshots(
     items = (await db.execute(q)).scalars().all()
 
     # Stored signed URLs are 24h-valid. Only refresh ones that are stale
-    # (uploaded > 23h ago) — single batch call to Supabase, not per-item.
+    # (uploaded > 23h ago) — single batch call to Supabase for all paths.
     now = datetime.now(timezone.utc)
     refresh_cutoff = now - timedelta(
         seconds=SIGNED_URL_TTL_SECONDS - URL_REFRESH_THRESHOLD_SECONDS
     )
-    stale_paths = [i.file_path for i in items if i.uploaded_at < refresh_cutoff]
+    stale = [i for i in items if i.uploaded_at < refresh_cutoff]
+    all_stale_paths = (
+        [i.file_path for i in stale]
+        + [i.thumbnail_path for i in stale if i.thumbnail_path]
+    )
 
-    if stale_paths:
-        new_urls = get_signed_urls_batch(stale_paths)
-        for item in items:
+    if all_stale_paths:
+        new_urls = get_signed_urls_batch(all_stale_paths)
+        for item in stale:
             if item.file_path in new_urls:
                 item.file_url = new_urls[item.file_path]
+            if item.thumbnail_path and item.thumbnail_path in new_urls:
+                item.thumbnail_url = new_urls[item.thumbnail_path]
 
     return ScreenshotListResponse(total=total, items=items)
 

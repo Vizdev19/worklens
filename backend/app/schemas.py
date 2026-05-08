@@ -48,6 +48,7 @@ class ScreenshotOut(BaseModel):
     id: str
     user_id: str
     file_url: str
+    thumbnail_url: Optional[str] = None
     file_size: Optional[int]
     monitor_index: int
     os_platform: Optional[str]

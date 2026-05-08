@@ -2,6 +2,7 @@ import uuid
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.pool import NullPool
+from sqlalchemy import text
 from app.config import get_settings
 
 settings = get_settings()
@@ -71,3 +72,9 @@ async def get_db():
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Idempotent column additions for the thumbnail feature
+        for stmt in [
+            "ALTER TABLE screenshots ADD COLUMN IF NOT EXISTS thumbnail_path TEXT",
+            "ALTER TABLE screenshots ADD COLUMN IF NOT EXISTS thumbnail_url TEXT",
+        ]:
+            await conn.execute(text(stmt))

@@ -1,6 +1,8 @@
 from supabase import create_client, Client
 from app.config import get_settings
 from datetime import datetime
+from PIL import Image
+from io import BytesIO
 import mimetypes
 
 settings = get_settings()
@@ -22,6 +24,20 @@ _MIME_TO_EXT = {
 # Long signed-URL TTL — 24h. Stored on the row so list endpoints don't
 # have to round-trip to Supabase per item. Refreshed lazily on miss.
 SIGNED_URL_TTL_SECONDS = 24 * 3600
+
+THUMB_WIDTH = 400
+THUMB_QUALITY = 60
+
+
+def _make_thumbnail(image_bytes: bytes) -> bytes:
+    img = Image.open(BytesIO(image_bytes))
+    if img.width > THUMB_WIDTH:
+        ratio = THUMB_WIDTH / img.width
+        img = img.resize((THUMB_WIDTH, int(img.height * ratio)), Image.LANCZOS)
+    buf = BytesIO()
+    img.save(buf, format="JPEG", quality=THUMB_QUALITY, optimize=True)
+    buf.seek(0)
+    return buf.read()
 
 
 async def upload_screenshot(
@@ -68,9 +84,31 @@ async def upload_screenshot(
     if not signed or "signedURL" not in signed:
         raise RuntimeError(f"Failed to create signed URL: {signed}")
 
+    # Generate and upload thumbnail (non-fatal if it fails)
+    thumb_path: str | None = None
+    thumb_url: str | None = None
+    try:
+        thumb_bytes = _make_thumbnail(file_bytes)
+        thumb_path = file_path.rsplit(".", 1)[0] + "_thumb.jpg"
+        supabase.storage.from_(settings.supabase_bucket).upload(
+            path=thumb_path,
+            file=thumb_bytes,
+            file_options={"content-type": "image/jpeg", "upsert": "true"},
+        )
+        thumb_signed = supabase.storage.from_(settings.supabase_bucket).create_signed_url(
+            path=thumb_path,
+            expires_in=SIGNED_URL_TTL_SECONDS,
+        )
+        if thumb_signed and "signedURL" in thumb_signed:
+            thumb_url = thumb_signed["signedURL"]
+    except Exception as e:
+        print(f"[storage] Thumbnail generation failed (non-fatal): {e}")
+
     return {
         "file_path": file_path,
         "file_url": signed["signedURL"],
+        "thumbnail_path": thumb_path,
+        "thumbnail_url": thumb_url,
     }
 
 

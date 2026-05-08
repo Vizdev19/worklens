@@ -41,6 +41,8 @@ class Screenshot(Base):
     user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
     file_path = Column(String, nullable=False)       # Supabase storage path
     file_url = Column(String, nullable=False)        # Public/signed URL
+    thumbnail_path = Column(String, nullable=True)  # Supabase path for 400px thumb
+    thumbnail_url = Column(String, nullable=True)   # Signed URL for thumb
     file_size = Column(Integer)                      # bytes
     monitor_index = Column(Integer, default=0)       # which monitor
     os_platform = Column(String)                     # Windows / Darwin / Linux
