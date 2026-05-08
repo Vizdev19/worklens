@@ -13,34 +13,10 @@ export function formatBytes(bytes: number | null) {
 }
 
 /**
- * Append Supabase Image Transformation params if the project is on a
- * plan that supports them. Currently we just return the original URL
- * — image transforms are a Pro-plan feature on Supabase, and silently
- * fail (400/404) on the free tier, leaving the dashboard with broken
- * thumbnails.
- *
- * Once you upgrade to Supabase Pro (or implement server-side thumbnail
- * generation in storage.py), flip ENABLE_TRANSFORMS to true.
- *
- * Docs: https://supabase.com/docs/guides/storage/serving/image-transformations
+ * Returns the pre-generated 400px thumbnail URL when available,
+ * falling back to the full-resolution URL for older screenshots
+ * that were captured before thumbnail generation was added.
  */
-const ENABLE_TRANSFORMS = false;
-
-export function thumbUrl(url: string, width = 320): string {
-  if (!url) return url;
-  if (!ENABLE_TRANSFORMS) return url;
-
-  try {
-    const u = new URL(url);
-    u.pathname = u.pathname.replace(
-      "/storage/v1/object/sign/",
-      "/storage/v1/render/image/sign/"
-    );
-    u.searchParams.set("width", String(width));
-    u.searchParams.set("quality", "60");
-    u.searchParams.set("resize", "contain");
-    return u.toString();
-  } catch {
-    return url;
-  }
+export function thumbUrl(fileUrl: string, thumbnailUrl?: string | null): string {
+  return thumbnailUrl || fileUrl;
 }

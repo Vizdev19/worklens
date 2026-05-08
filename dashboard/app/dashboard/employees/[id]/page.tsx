@@ -95,7 +95,7 @@ export default function EmployeeDetailPage() {
                 className="bg-slate-50 rounded-lg overflow-hidden border hover:shadow-md hover:border-brand-300 transition group"
               >
                 <img
-                  src={thumbUrl(s.file_url)}
+                  src={thumbUrl(s.file_url, s.thumbnail_url)}
                   alt=""
                   loading="lazy"
                   decoding="async"

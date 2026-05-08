@@ -13,6 +13,7 @@ export interface Screenshot {
   id: string;
   user_id: string;
   file_url: string;
+  thumbnail_url: string | null;
   file_size: number | null;
   monitor_index: number;
   os_platform: string | null;

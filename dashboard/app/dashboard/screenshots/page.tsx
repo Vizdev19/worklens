@@ -73,7 +73,7 @@ export default function AllScreenshotsPage() {
                   className="bg-white rounded-lg overflow-hidden border hover:shadow-md transition text-left"
                 >
                   <img
-                    src={thumbUrl(s.file_url)}
+                    src={thumbUrl(s.file_url, s.thumbnail_url)}
                     alt=""
                     loading="lazy"
                     decoding="async"
