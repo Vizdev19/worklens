@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     app_name: str = "EmployeeMonitor"
     environment: str = "development"
 
+    # Frontend URL — used as the redirect target in Supabase verification emails.
+    # Must be listed in Supabase Dashboard → Auth → URL Configuration → Allowed Redirect URLs.
+    frontend_url: str = "http://localhost:3000"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore",  # ignore unknown env vars

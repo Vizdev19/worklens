@@ -3,19 +3,18 @@
 /**
  * Supabase Auth callback handler.
  *
- * After a user clicks the email-verification link, Supabase redirects here
- * with a code in the query string. The Supabase JS client exchanges it for
- * a session automatically when `detectSessionInUrl` is true (default).
+ * After a user clicks the email-verification link, Supabase redirects here.
+ * The Supabase JS client exchanges the code for a session automatically.
  *
- * We just wait for the session to settle, then route accordingly:
- *   - Verified admin  → /dashboard (or /onboarding if first login)
- *   - No session yet  → /login  (e.g. expired link)
+ * Routing:
+ *   - New org admins (onboarding not done)  → /onboarding
+ *   - Returning admins                      → /dashboard
+ *   - No session (expired/used link)        → /login?error=link_expired
  */
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/api";
-import { authApi, setStoredUser } from "@/lib/api";
+import { supabase, authApi, setStoredUser } from "@/lib/api";
 import { Loader2 } from "lucide-react";
 
 export default function AuthCallbackPage() {
@@ -23,19 +22,16 @@ export default function AuthCallbackPage() {
 
   useEffect(() => {
     const handle = async () => {
-      // Give Supabase a moment to exchange the code from the URL hash / query.
       const {
         data: { session },
       } = await supabase.auth.getSession();
 
       if (!session) {
-        // Link may have been expired or already used
         router.replace("/login?error=link_expired");
         return;
       }
 
       try {
-        // Fetch local profile so we can check role and cache it
         const profile = await authApi.me(session.access_token);
         setStoredUser({
           id: profile.id,
@@ -44,8 +40,14 @@ export default function AuthCallbackPage() {
           org_id: profile.org_id,
         });
 
-        // First-time org admins go to onboarding; returning users go to dashboard
-        router.replace("/dashboard");
+        // First-time org admin: send to onboarding wizard.
+        // Returning user: send to dashboard.
+        const onboardingDone = localStorage.getItem("em_onboarding_done");
+        if (!onboardingDone && profile.role === "admin") {
+          router.replace("/onboarding");
+        } else {
+          router.replace("/dashboard");
+        }
       } catch {
         router.replace("/login");
       }

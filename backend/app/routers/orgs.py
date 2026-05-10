@@ -99,6 +99,11 @@ async def signup(
                 "email": body.email,
                 "password": body.password,
                 "email_confirm": False,   # Supabase sends verification email
+                "options": {
+                    # After the user clicks the link, Supabase redirects here.
+                    # Must be listed in Supabase → Auth → Allowed Redirect URLs.
+                    "email_redirect_to": f"{settings.frontend_url}/auth/callback",
+                },
             },
         )
 

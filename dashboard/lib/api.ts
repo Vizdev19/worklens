@@ -1,6 +1,6 @@
 import axios, { AxiosError } from "axios";
 import { createClient } from "@supabase/supabase-js";
-import type { User, Screenshot, ScreenshotListResponse } from "@/types/api";
+import type { User, Screenshot, ScreenshotListResponse, Org } from "@/types/api";
 
 const baseURL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -127,6 +127,28 @@ export const employeesApi = {
     (await api.patch(`/employees/${id}/deactivate`)).data,
   activate: async (id: string) =>
     (await api.patch(`/employees/${id}/activate`)).data,
+};
+
+// ── Orgs API ──────────────────────────────────────────────────────────────────
+
+export const orgsApi = {
+  /** Public — create org + admin account. Supabase sends verification email. */
+  signup: async (body: {
+    company_name: string;
+    admin_name: string;
+    email: string;
+    password: string;
+    plan?: string;
+  }) => (await axios.post(`${baseURL}/orgs/`, body)).data as { message: string; email: string; org_id: string },
+
+  me: async () => (await api.get<Org>("/orgs/me")).data,
+
+  update: async (body: {
+    name?: string;
+    capture_interval_minutes?: number;
+    review_window_minutes?: number;
+    idle_skip_minutes?: number;
+  }) => (await api.patch<Org>("/orgs/me", body)).data,
 };
 
 // ── Screenshots API ───────────────────────────────────────────────────────────
