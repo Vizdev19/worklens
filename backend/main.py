@@ -25,12 +25,15 @@ allowed_origins = os.getenv(
     "http://localhost:3000,http://localhost:8000",
 ).split(",")
 
-# Also allow all Vercel preview deployments via regex (e.g. ...-lyart.vercel.app)
-# Tighten this later when you have a custom domain.
+# Also allow all Vercel preview deployments (both marketing and dashboard projects).
+# Tighten to explicit custom domains once DNS is configured.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in allowed_origins if o.strip()],
-    allow_origin_regex=r"https://employee-monitor-dashboard.*\.vercel\.app",
+    allow_origin_regex=(
+        r"https://(employee-monitor-dashboard|employee-monitor-marketing)"
+        r".*\.vercel\.app"
+    ),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

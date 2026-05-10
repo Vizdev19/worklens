@@ -40,7 +40,15 @@ export default function LoginPage() {
           <Eye className="text-brand-600" size={28} />
           <h1 className="text-2xl font-bold">Employee Monitor</h1>
         </div>
-        <p className="text-slate-500 mb-6">Sign in to your admin account</p>
+        <p className="text-slate-500 mb-6">
+          Sign in to your admin account.{" "}
+          <a
+            href={`${process.env.NEXT_PUBLIC_MARKETING_URL || "http://localhost:3001"}/signup`}
+            className="text-brand-600 hover:underline text-sm"
+          >
+            Need an account?
+          </a>
+        </p>
 
         <form onSubmit={onSubmit} className="space-y-4">
           <div>
