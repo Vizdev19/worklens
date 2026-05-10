@@ -6,6 +6,7 @@ export interface User {
   full_name: string;
   role: UserRole;
   is_active: boolean;
+  org_id?: string;
   created_at: string;
 }
 
@@ -24,13 +25,4 @@ export interface Screenshot {
 export interface ScreenshotListResponse {
   total: number;
   items: Screenshot[];
-}
-
-export interface TokenResponse {
-  access_token: string;
-  refresh_token: string;
-  token_type: string;
-  employee_id: string;
-  full_name: string;
-  role: UserRole;
 }

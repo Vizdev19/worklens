@@ -3,19 +3,17 @@ from functools import lru_cache
 
 
 class Settings(BaseSettings):
-    # Supabase
+    # Supabase project credentials
     supabase_url: str
-    supabase_service_key: str
+    supabase_service_key: str          # service_role key — never expose to clients
     supabase_bucket: str = "screenshots"
 
-    # PostgreSQL
-    database_url: str
+    # Supabase Auth JWT secret — Project Settings → API → JWT Secret
+    # Used to validate Bearer tokens issued by Supabase Auth (GoTrue).
+    supabase_jwt_secret: str
 
-    # JWT
-    secret_key: str
-    algorithm: str = "HS256"
-    access_token_expire_minutes: int = 60
-    refresh_token_expire_days: int = 30
+    # PostgreSQL — Supabase pooler URL recommended for production
+    database_url: str
 
     # CORS — comma-separated list of allowed origins
     allowed_origins: str = "http://localhost:3000"
@@ -26,7 +24,7 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_file=".env",
-        extra="ignore",  # ignore unknown env vars instead of erroring
+        extra="ignore",  # ignore unknown env vars
     )
 
 

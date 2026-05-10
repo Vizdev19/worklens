@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import {
   authApi,
-  getAccessToken,
+  supabase,
   getStoredUser,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -38,11 +38,13 @@ export default function DashboardLayout({
   const [loggingOut, setLoggingOut] = useState(false);
 
   useEffect(() => {
-    if (!getAccessToken()) {
-      router.replace("/login");
-      return;
-    }
-    setUser(getStoredUser());
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session) {
+        router.replace("/login");
+        return;
+      }
+      setUser(getStoredUser());
+    });
   }, [router]);
 
   async function performLogout() {

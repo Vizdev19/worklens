@@ -2,12 +2,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Optional
+import httpx
 
+from app.config import get_settings
 from app.database import get_db
 from app.models import User, UserRole
 from app.schemas import UserOut, UserCreate
-from app.auth import require_admin, get_current_user, hash_password
+from app.auth import require_admin, get_current_user
 
+settings = get_settings()
 router = APIRouter(prefix="/employees", tags=["Employees"])
 
 
@@ -23,24 +26,55 @@ async def list_employees(
     return result.scalars().all()
 
 
-@router.post("/", response_model=UserOut, status_code=201,
-             dependencies=[Depends(require_admin)])
-async def create_employee(body: UserCreate, db: AsyncSession = Depends(get_db)):
-    # Password rule
+@router.post("/", response_model=UserOut, status_code=201)
+async def create_employee(
+    body: UserCreate,
+    current_admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Admin creates a new employee account.
+
+    1. Creates the Supabase Auth user (email auto-confirmed — admin-provisioned).
+    2. Inserts a local profile row whose id matches the Supabase UUID.
+    The employee can immediately sign in via the agent; no email verification needed.
+    """
     if len(body.password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters")
 
-    # Email uniqueness
+    # ── Create auth user in Supabase ─────────────────────────────────────────
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.post(
+            f"{settings.supabase_url}/auth/v1/admin/users",
+            headers={
+                "apikey": settings.supabase_service_key,
+                "Authorization": f"Bearer {settings.supabase_service_key}",
+            },
+            json={
+                "email": body.email,
+                "password": body.password,
+                "email_confirm": True,   # admin-created accounts skip email verification
+            },
+        )
+
+    if resp.status_code == 422:
+        raise HTTPException(409, "Email already in use")
+    if resp.status_code >= 400:
+        raise HTTPException(502, f"Auth service error: {resp.text}")
+
+    supabase_id: str = resp.json()["id"]
+
+    # ── Create local profile ─────────────────────────────────────────────────
     existing = await db.execute(select(User).where(User.email == body.email))
     if existing.scalar_one_or_none():
-        raise HTTPException(409, "Email already in use")
+        raise HTTPException(409, "Email already registered locally")
 
-    # Force role to employee from this endpoint (admins are seeded via CLI)
     user = User(
+        id=supabase_id,          # UUID from Supabase — must match for JWT → profile lookup
         email=body.email,
         full_name=body.full_name,
-        hashed_password=hash_password(body.password),
-        role=UserRole.employee,
+        role=UserRole.employee,  # force employee role; admins come via org signup
+        org_id=current_admin.org_id,
     )
     db.add(user)
     await db.flush()

@@ -31,6 +31,10 @@ AGENT_VERSION = __version__
 # Update SERVER_URL when your prod backend URL changes.
 PRODUCTION_DEFAULTS = {
     "SERVER_URL": "https://employee-monitor-api.vercel.app",
+    # Supabase project — agents authenticate directly against Supabase Auth REST API.
+    # These are the anon/public credentials (safe to bundle in the binary).
+    "SUPABASE_URL": "https://your-project.supabase.co",
+    "SUPABASE_ANON_KEY": "your-anon-key",
     "CAPTURE_INTERVAL_MINUTES": "10",
     "IDLE_SKIP_MINUTES": "5",
     "JPEG_QUALITY": "70",
@@ -66,6 +70,8 @@ def _cfg(key: str) -> str:
 
 
 SERVER_URL = _cfg("SERVER_URL")
+SUPABASE_URL = _cfg("SUPABASE_URL")
+SUPABASE_ANON_KEY = _cfg("SUPABASE_ANON_KEY")
 CAPTURE_INTERVAL_MINUTES = int(_cfg("CAPTURE_INTERVAL_MINUTES"))
 IDLE_SKIP_MINUTES = int(_cfg("IDLE_SKIP_MINUTES"))
 JPEG_QUALITY = int(_cfg("JPEG_QUALITY"))

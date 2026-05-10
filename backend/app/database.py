@@ -72,9 +72,23 @@ async def get_db():
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        # Idempotent column additions for the thumbnail feature
+        # Idempotent column additions — safe to run on existing databases.
+        # New tables are created by create_all above; only column additions
+        # on pre-existing tables need ALTER TABLE.
         for stmt in [
+            # Thumbnail feature
             "ALTER TABLE screenshots ADD COLUMN IF NOT EXISTS thumbnail_path TEXT",
             "ALTER TABLE screenshots ADD COLUMN IF NOT EXISTS thumbnail_url TEXT",
+            # Multi-tenancy: org membership on users
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS org_id TEXT REFERENCES organizations(id)",
+            # email_verified column (legacy — Supabase now owns verification)
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT TRUE",
+            # Multi-tenancy: org_id on screenshots
+            "ALTER TABLE screenshots ADD COLUMN IF NOT EXISTS org_id TEXT REFERENCES organizations(id)",
+            # Multi-tenancy: org_id on deletion_logs
+            "ALTER TABLE deletion_logs ADD COLUMN IF NOT EXISTS org_id TEXT REFERENCES organizations(id)",
+            # Supabase Auth migration: passwords are now managed by Supabase;
+            # allow NULL so new users created via the Admin API have no local hash.
+            "ALTER TABLE users ALTER COLUMN hashed_password DROP NOT NULL",
         ]:
             await conn.execute(text(stmt))

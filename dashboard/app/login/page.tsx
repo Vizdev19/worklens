@@ -17,8 +17,10 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
     try {
-      const data = await authApi.login(email, password);
-      if (data.role !== "admin") {
+      const user = await authApi.login(email, password);
+      if (user.role !== "admin") {
+        // Sign out the non-admin immediately — they have no dashboard access
+        await authApi.logout();
         setError("Only admins can access the dashboard.");
         setLoading(false);
         return;

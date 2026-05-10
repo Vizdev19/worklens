@@ -1,135 +1,135 @@
 import axios, { AxiosError } from "axios";
-import type {
-  User,
-  Screenshot,
-  ScreenshotListResponse,
-  TokenResponse,
-} from "@/types/api";
+import { createClient } from "@supabase/supabase-js";
+import type { User, Screenshot, ScreenshotListResponse } from "@/types/api";
 
 const baseURL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+// ── Supabase client ──────────────────────────────────────────────────────────
+// Uses the anon key — safe to expose. Server-side operations that need
+// elevated permissions use the service key from the backend only.
+export const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+);
+
 export const api = axios.create({ baseURL });
 
-// ── Token storage (localStorage for simplicity — single-user phase) ─────────
-const ACCESS_KEY = "em_access_token";
-const REFRESH_KEY = "em_refresh_token";
+// ── User profile cache (role, full_name, org_id) ─────────────────────────────
+// We store only the profile metadata — Supabase client manages the JWT.
 const USER_KEY = "em_user";
 
-export function getAccessToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem(ACCESS_KEY);
+export function setStoredUser(u: {
+  id: string;
+  full_name: string;
+  role: string;
+  org_id?: string;
+}) {
+  if (typeof window !== "undefined")
+    localStorage.setItem(USER_KEY, JSON.stringify(u));
 }
-export function setAccessToken(t: string) {
-  localStorage.setItem(ACCESS_KEY, t);
-}
-export function getRefreshToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem(REFRESH_KEY);
-}
-export function setRefreshToken(t: string) {
-  localStorage.setItem(REFRESH_KEY, t);
-}
-export function setStoredUser(u: { id: string; full_name: string; role: string }) {
-  localStorage.setItem(USER_KEY, JSON.stringify(u));
-}
-export function getStoredUser() {
+
+export function getStoredUser(): {
+  id: string;
+  full_name: string;
+  role: string;
+  org_id?: string;
+} | null {
   if (typeof window === "undefined") return null;
   const raw = localStorage.getItem(USER_KEY);
   return raw ? JSON.parse(raw) : null;
 }
-export function clearAuth() {
-  localStorage.removeItem(ACCESS_KEY);
-  localStorage.removeItem(REFRESH_KEY);
-  localStorage.removeItem(USER_KEY);
+
+export function clearStoredUser() {
+  if (typeof window !== "undefined") localStorage.removeItem(USER_KEY);
 }
 
-// ── Inject auth header ───────────────────────────────────────────────────────
-api.interceptors.request.use((config) => {
-  const token = getAccessToken();
-  if (token) config.headers.Authorization = `Bearer ${token}`;
+// ── Inject Supabase JWT into every API request ───────────────────────────────
+// Supabase client auto-refreshes tokens in the background; we just pull the
+// current session before each call.
+api.interceptors.request.use(async (config) => {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (session?.access_token) {
+    config.headers.Authorization = `Bearer ${session.access_token}`;
+  }
   return config;
 });
 
-// ── Auto-refresh on 401 ──────────────────────────────────────────────────────
-let refreshing: Promise<string | null> | null = null;
-
-async function refreshAccessToken(): Promise<string | null> {
-  const refresh = getRefreshToken();
-  if (!refresh) return null;
-  try {
-    const res = await axios.post<TokenResponse>(
-      `${baseURL}/auth/refresh`,
-      { refresh_token: refresh },
-    );
-    setAccessToken(res.data.access_token);
-    setRefreshToken(res.data.refresh_token);
-    return res.data.access_token;
-  } catch {
-    clearAuth();
-    return null;
-  }
-}
-
+// ── Retry once on 401 after Supabase refreshes the session ───────────────────
 api.interceptors.response.use(
   (r) => r,
   async (error: AxiosError) => {
     const original = error.config as any;
     if (error.response?.status === 401 && !original?._retry) {
       original._retry = true;
-      refreshing ||= refreshAccessToken().finally(() => (refreshing = null));
-      const token = await refreshing;
-      if (token) {
-        original.headers.Authorization = `Bearer ${token}`;
+      const {
+        data: { session },
+      } = await supabase.auth.refreshSession();
+      if (session?.access_token) {
+        original.headers.Authorization = `Bearer ${session.access_token}`;
         return api(original);
       }
+      // Refresh failed — send user to login
       if (typeof window !== "undefined") window.location.href = "/login";
     }
     return Promise.reject(error);
   },
 );
 
-// ── API methods ──────────────────────────────────────────────────────────────
+// ── Auth API ─────────────────────────────────────────────────────────────────
 
 export const authApi = {
-  login: async (email: string, password: string) => {
-    const res = await api.post<TokenResponse>("/auth/login", { email, password });
-    setAccessToken(res.data.access_token);
-    setRefreshToken(res.data.refresh_token);
-    setStoredUser({
-      id: res.data.employee_id,
-      full_name: res.data.full_name,
-      role: res.data.role,
+  /**
+   * Sign in with Supabase, then fetch the local profile (role, org_id).
+   * Returns the User profile so callers can gate on role immediately.
+   */
+  login: async (email: string, password: string): Promise<User> => {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
     });
-    return res.data;
+    if (error) throw { response: { data: { detail: error.message } } };
+
+    // Fetch profile using the fresh session token directly (interceptor may
+    // not have propagated yet for this first call).
+    const profile = await authApi.me(data.session!.access_token);
+    setStoredUser({
+      id: profile.id,
+      full_name: profile.full_name,
+      role: profile.role,
+      org_id: profile.org_id,
+    });
+    return profile;
   },
+
   logout: async () => {
-    const refresh = getRefreshToken();
-    if (refresh) {
-      try {
-        await api.post("/auth/logout", { refresh_token: refresh });
-      } catch {
-        /* ignore */
-      }
-    }
-    clearAuth();
+    await supabase.auth.signOut();
+    clearStoredUser();
   },
-  me: async () => (await api.get<User>("/employees/me")).data,
+
+  /** Fetch the current user's profile from our backend. */
+  me: async (token?: string): Promise<User> => {
+    const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+    return (await api.get<User>("/employees/me", { headers })).data;
+  },
 };
+
+// ── Employees API ─────────────────────────────────────────────────────────────
 
 export const employeesApi = {
   list: async () => (await api.get<User[]>("/employees/")).data,
   get: async (id: string) => (await api.get<User>(`/employees/${id}`)).data,
-  create: async (body: {
-    email: string;
-    full_name: string;
-    password: string;
-  }) => (await api.post<User>("/employees/", body)).data,
+  create: async (body: { email: string; full_name: string; password: string }) =>
+    (await api.post<User>("/employees/", body)).data,
   deactivate: async (id: string) =>
     (await api.patch(`/employees/${id}/deactivate`)).data,
   activate: async (id: string) =>
     (await api.patch(`/employees/${id}/activate`)).data,
 };
+
+// ── Screenshots API ───────────────────────────────────────────────────────────
 
 export const screenshotsApi = {
   list: async (params: {

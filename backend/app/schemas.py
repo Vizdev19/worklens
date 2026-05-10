@@ -4,24 +4,6 @@ from datetime import datetime
 from app.models import UserRole
 
 
-# ── Auth ────────────────────────────────────────────────────────────────────
-
-class LoginRequest(BaseModel):
-    email: EmailStr
-    password: str
-
-class TokenResponse(BaseModel):
-    access_token: str
-    refresh_token: str
-    token_type: str = "bearer"
-    employee_id: str
-    full_name: str
-    role: UserRole
-
-class RefreshRequest(BaseModel):
-    refresh_token: str
-
-
 # ── Users ────────────────────────────────────────────────────────────────────
 
 class UserCreate(BaseModel):
@@ -36,6 +18,7 @@ class UserOut(BaseModel):
     full_name: str
     role: UserRole
     is_active: bool
+    org_id: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -61,6 +44,39 @@ class ScreenshotOut(BaseModel):
 class ScreenshotListResponse(BaseModel):
     total: int
     items: list[ScreenshotOut]
+
+
+# ── Organizations ────────────────────────────────────────────────────────────
+
+class OrgSignup(BaseModel):
+    company_name: str
+    admin_name: str
+    email: EmailStr
+    password: str
+    plan: str = "free"   # free | starter | pro | enterprise
+
+class OrgOut(BaseModel):
+    id: str
+    name: str
+    slug: str
+    plan: str
+    is_active: bool
+    max_seats: int
+    capture_interval_minutes: int
+    review_window_minutes: int
+    idle_skip_minutes: int
+    retention_days: int
+    trial_ends_at: Optional[datetime] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+class OrgUpdate(BaseModel):
+    name: Optional[str] = None
+    capture_interval_minutes: Optional[int] = None
+    review_window_minutes: Optional[int] = None
+    idle_skip_minutes: Optional[int] = None
 
 
 # ── Deletion log ──────────────────────────────────────────────────────────────
