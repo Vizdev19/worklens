@@ -29,6 +29,7 @@ from pathlib import Path
 from socketserver import ThreadingMixIn
 from typing import Callable, Optional
 
+import review_queue
 import state
 from paths import state_dir
 
@@ -160,6 +161,25 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json(200, state.snapshot())
             return
 
+        if rest == "/api/review":
+            items = review_queue.list_pending()
+            self._send_json(200, {"items": items})
+            return
+
+        # /api/review/<id>/image  — serve the preview JPEG
+        if rest.startswith("/api/review/") and rest.endswith("/image"):
+            id_ = rest[len("/api/review/"):-len("/image")]
+            path = review_queue.get_preview_path(id_)
+            if not path:
+                self._send(404, b"Not Found")
+                return
+            try:
+                data = open(path, "rb").read()
+                self._send(200, data, "image/jpeg")
+            except OSError:
+                self._send(404, b"Not Found")
+            return
+
         self._send(404, b"Not Found")
 
     def do_POST(self):
@@ -175,10 +195,35 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json(200, {"tracking": new_value})
             return
 
+        if rest == "/api/review/approve-all":
+            review_queue.approve_all_pending()
+            print("[ui] Employee approved all pending screenshots")
+            self._send_json(200, {"ok": True})
+            return
+
         if rest == "/api/sign-out":
             self._send_json(200, {"ok": True})
             if _on_signout:
                 threading.Thread(target=_on_signout, daemon=True).start()
+            return
+
+        self._send(404, b"Not Found")
+
+    def do_DELETE(self):
+        rest = self._path_after_token()
+        if rest is None:
+            self._send(403, b"Forbidden")
+            return
+
+        # DELETE /api/review/<id>
+        if rest.startswith("/api/review/"):
+            id_ = rest[len("/api/review/"):]
+            meta = review_queue.delete_item(id_)
+            if meta is None:
+                self._send(404, b"Not Found")
+                return
+            print(f"[ui] Employee removed screenshot captured at {meta['captured_at']}")
+            self._send_json(200, {"ok": True})
             return
 
         self._send(404, b"Not Found")
@@ -268,6 +313,48 @@ HTML = r"""<!doctype html>
   .signout:hover { background: #f8fafc; color: #dc2626; border-color: #fecaca; }
   .signout:disabled { opacity: 0.5; cursor: not-allowed; }
   .footer { color: #94a3b8; font-size: 10px; text-align: center; margin-top: auto; }
+
+  /* ── Review panel ── */
+  .review-card { border-color: #e0e7ff; }
+  .review-hdr {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 6px;
+  }
+  .review-hdr span { font-weight: 600; font-size: 13px; color: #3730a3; }
+  .review-badge {
+    background: #4f46e5; color: white;
+    font-size: 11px; font-weight: 700;
+    padding: 1px 7px; border-radius: 999px;
+  }
+  .review-sub { font-size: 11px; color: #64748b; margin-bottom: 10px; }
+  .review-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .thumb-card {
+    border: 1px solid #e2e8f0; border-radius: 8px;
+    overflow: hidden; background: #f8fafc;
+    display: flex; flex-direction: column;
+  }
+  .thumb-img { width: 100%; height: 72px; object-fit: cover; display: block; }
+  .thumb-meta { font-size: 10px; color: #64748b; padding: 3px 5px; }
+  .remove-btn {
+    font-family: inherit; font-size: 11px; font-weight: 600;
+    background: #fee2e2; color: #b91c1c; border: none;
+    padding: 4px; cursor: pointer; transition: background 0.12s;
+  }
+  .remove-btn:hover { background: #fecaca; }
+  .remove-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .upload-now-btn {
+    width: 100%; border: none; padding: 8px;
+    background: #4f46e5; color: white; border-radius: 8px;
+    font-family: inherit; font-size: 12px; font-weight: 600;
+    cursor: pointer; transition: background 0.15s;
+  }
+  .upload-now-btn:hover { background: #4338ca; }
+  .upload-now-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>
 </head>
 <body>
@@ -297,6 +384,20 @@ HTML = r"""<!doctype html>
   </div>
 
   <div class="meta">Closing this tab won't stop monitoring.</div>
+
+  <!-- Review panel — hidden when nothing is pending -->
+  <div class="card review-card" id="reviewCard" style="display:none">
+    <div class="review-hdr">
+      <span>📸 Screenshots pending review</span>
+      <span class="review-badge" id="reviewBadge">0</span>
+    </div>
+    <p class="review-sub">
+      Auto-uploading in <strong id="countdown">—</strong>.
+      Remove any screenshots you don't want sent.
+    </p>
+    <div class="review-grid" id="reviewGrid"></div>
+    <button class="upload-now-btn" id="uploadNowBtn">Upload all now</button>
+  </div>
 
   <button class="toggle stop" id="trackBtn">Stop tracking</button>
   <button class="signout" id="signoutBtn">Sign out & quit</button>
@@ -402,9 +503,95 @@ HTML = r"""<!doctype html>
     }
   });
 
+  // ── Review panel ────────────────────────────────────────────────────────
+
+  let _reviewItems = [];
+
+  function fmtTime(iso) {
+    try {
+      const d = new Date(iso);
+      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    } catch { return "—"; }
+  }
+
+  function renderReview() {
+    const card  = $("reviewCard");
+    const grid  = $("reviewGrid");
+    const badge = $("reviewBadge");
+
+    badge.textContent = _reviewItems.length;
+    card.style.display = _reviewItems.length > 0 ? "block" : "none";
+
+    if (_reviewItems.length === 0) { grid.innerHTML = ""; return; }
+
+    grid.innerHTML = _reviewItems.map(item => `
+      <div class="thumb-card" id="thumb-${item.id}">
+        <img class="thumb-img" src="./api/review/${item.id}/image" />
+        <div class="thumb-meta">${fmtTime(item.captured_at)} · Mon ${(item.monitor_idx||0)+1}</div>
+        <button class="remove-btn" onclick="removeItem('${item.id}')">Remove</button>
+      </div>
+    `).join("");
+  }
+
+  function updateCountdown() {
+    if (!_reviewItems.length) return;
+    const earliest = _reviewItems.reduce(
+      (min, i) => i.deadline < min ? i.deadline : min,
+      _reviewItems[0].deadline
+    );
+    const secs = Math.max(0, Math.floor((new Date(earliest) - Date.now()) / 1000));
+    const m = Math.floor(secs / 60), s = secs % 60;
+    $("countdown").textContent = m > 0 ? `${m}m ${s}s` : `${s}s`;
+  }
+
+  async function refreshReview() {
+    try {
+      const data = await api("/api/review");
+      _reviewItems = data.items || [];
+      renderReview();
+    } catch (e) {
+      // Silently ignore — server may not have review endpoint in older builds
+    }
+  }
+
+  async function removeItem(id) {
+    const card = document.getElementById("thumb-" + id);
+    const btn  = card ? card.querySelector(".remove-btn") : null;
+    if (btn) { btn.disabled = true; btn.textContent = "Removing…"; }
+    try {
+      await fetch("." + "/api/review/" + id, { method: "DELETE" });
+      _reviewItems = _reviewItems.filter(i => i.id !== id);
+      renderReview();
+    } catch (e) {
+      if (btn) { btn.disabled = false; btn.textContent = "Remove"; }
+      alert("Could not remove screenshot: " + e.message);
+    }
+  }
+
+  $("uploadNowBtn").addEventListener("click", async () => {
+    const btn = $("uploadNowBtn");
+    btn.disabled = true;
+    btn.textContent = "Uploading…";
+    try {
+      await api("/api/review/approve-all", { method: "POST" });
+      _reviewItems = [];
+      renderReview();
+    } catch (e) {
+      alert("Upload failed: " + e.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Upload all now";
+    }
+  });
+
+  // Update countdown every second without polling the server
+  setInterval(() => { if (_reviewItems.length) updateCountdown(); }, 1000);
+
   document.addEventListener("DOMContentLoaded", () => {
     refresh();
+    refreshReview();
     setInterval(refresh, 5000);
+    setInterval(refreshReview, 5000);
   });
 </script>
 </body>

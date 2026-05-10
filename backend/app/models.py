@@ -52,6 +52,19 @@ class Screenshot(Base):
     user = relationship("User", back_populates="screenshots")
 
 
+class DeletionLog(Base):
+    """Audit record written when an employee removes a screenshot during review."""
+    __tablename__ = "deletion_logs"
+
+    id = Column(String, primary_key=True, default=gen_uuid)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    captured_at = Column(DateTime(timezone=True), nullable=False)
+    monitor_index = Column(Integer, default=0)
+    deleted_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User")
+
+
 class RefreshToken(Base):
     __tablename__ = "refresh_tokens"
 

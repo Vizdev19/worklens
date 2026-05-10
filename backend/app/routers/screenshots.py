@@ -5,8 +5,8 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from app.database import get_db
-from app.models import Screenshot, User
-from app.schemas import ScreenshotOut, ScreenshotListResponse
+from app.models import Screenshot, User, DeletionLog
+from app.schemas import ScreenshotOut, ScreenshotListResponse, DeletionLogCreate, DeletionLogOut
 from app.auth import get_current_user, require_admin
 from app.storage import (
     upload_screenshot,
@@ -133,6 +133,56 @@ async def list_screenshots(
                 item.thumbnail_url = new_urls[item.thumbnail_path]
 
     return ScreenshotListResponse(total=total, items=items)
+
+
+@router.post("/deletion-log", response_model=DeletionLogOut)
+async def log_deletion(
+    body: DeletionLogCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Called by the agent when an employee removes a screenshot during review.
+    Records the event for admin audit without storing any image content.
+    """
+    entry = DeletionLog(
+        user_id=current_user.id,
+        captured_at=body.captured_at,
+        monitor_index=body.monitor_index,
+    )
+    db.add(entry)
+    await db.flush()
+    return entry
+
+
+@router.get(
+    "/deletion-log",
+    response_model=list[DeletionLogOut],
+    dependencies=[Depends(require_admin)],
+)
+async def list_deletions(
+    employee_id: Optional[str] = Query(None),
+    date_from: Optional[datetime] = Query(None),
+    date_to: Optional[datetime] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin view: which screenshots were removed by employees before upload."""
+    filters = []
+    if employee_id:
+        filters.append(DeletionLog.user_id == employee_id)
+    if date_from:
+        filters.append(DeletionLog.captured_at >= date_from)
+    if date_to:
+        filters.append(DeletionLog.captured_at <= date_to)
+
+    q = select(DeletionLog).order_by(DeletionLog.deleted_at.desc())
+    if filters:
+        q = q.where(and_(*filters))
+    q = q.offset((page - 1) * page_size).limit(page_size)
+    items = (await db.execute(q)).scalars().all()
+    return items
 
 
 @router.get("/my", response_model=ScreenshotListResponse)

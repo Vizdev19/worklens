@@ -35,6 +35,7 @@ PRODUCTION_DEFAULTS = {
     "IDLE_SKIP_MINUTES": "5",
     "JPEG_QUALITY": "70",
     "MAX_WIDTH": "1920",
+    "REVIEW_WINDOW_MINUTES": "5",   # How long employees have to remove a screenshot before it auto-uploads
 }
 
 
@@ -69,4 +70,5 @@ CAPTURE_INTERVAL_MINUTES = int(_cfg("CAPTURE_INTERVAL_MINUTES"))
 IDLE_SKIP_MINUTES = int(_cfg("IDLE_SKIP_MINUTES"))
 JPEG_QUALITY = int(_cfg("JPEG_QUALITY"))
 MAX_WIDTH = int(_cfg("MAX_WIDTH"))
+REVIEW_WINDOW_MINUTES = int(_cfg("REVIEW_WINDOW_MINUTES"))
 KEYRING_SERVICE = "EmployeeMonitor"

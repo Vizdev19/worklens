@@ -10,6 +10,7 @@ from datetime import datetime, date, timezone
 
 import auth
 import queue_manager
+import review_queue
 
 
 _lock = threading.Lock()
@@ -66,7 +67,7 @@ def stop():
 
 def snapshot() -> dict:
     """Return everything the UI needs to render."""
-    from config import CAPTURE_INTERVAL_MINUTES, IDLE_SKIP_MINUTES, AGENT_VERSION
+    from config import CAPTURE_INTERVAL_MINUTES, IDLE_SKIP_MINUTES, REVIEW_WINDOW_MINUTES, AGENT_VERSION
 
     with _lock:
         s = dict(_state)
@@ -79,9 +80,11 @@ def snapshot() -> dict:
         "last_capture_at": s["last_capture_at"],
         "captures_today": s["captures_today"],
         "queue_size": queue_manager.queue_size(),
+        "pending_review": review_queue.pending_count(),
         "last_upload_ok": s["last_upload_ok"],
         "capture_interval_minutes": CAPTURE_INTERVAL_MINUTES,
         "idle_skip_minutes": IDLE_SKIP_MINUTES,
+        "review_window_minutes": REVIEW_WINDOW_MINUTES,
         "running": s["running"],
         "tracking": s["tracking"],
     }
