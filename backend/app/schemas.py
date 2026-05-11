@@ -66,6 +66,7 @@ class OrgOut(BaseModel):
     review_window_minutes: int
     idle_skip_minutes: int
     retention_days: int
+    onboarding_done: bool = False
     trial_ends_at: Optional[datetime] = None
     created_at: datetime
 
@@ -77,6 +78,7 @@ class OrgUpdate(BaseModel):
     capture_interval_minutes: Optional[int] = None
     review_window_minutes: Optional[int] = None
     idle_skip_minutes: Optional[int] = None
+    onboarding_done: Optional[bool] = None
 
 
 # ── Deletion log ──────────────────────────────────────────────────────────────

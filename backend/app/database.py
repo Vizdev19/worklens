@@ -92,5 +92,7 @@ async def init_db():
             # Supabase Auth migration: passwords are now managed by Supabase;
             # allow NULL so new users created via the Admin API have no local hash.
             "ALTER TABLE users ALTER COLUMN hashed_password DROP NOT NULL",
+            # ARCH-8: server-side onboarding flag (replaces localStorage hack)
+            "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS onboarding_done BOOLEAN NOT NULL DEFAULT FALSE",
         ]:
             await conn.execute(text(stmt))

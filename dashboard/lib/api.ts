@@ -148,6 +148,7 @@ export const orgsApi = {
     capture_interval_minutes?: number;
     review_window_minutes?: number;
     idle_skip_minutes?: number;
+    onboarding_done?: boolean;
   }) => (await api.patch<Org>("/orgs/me", body)).data,
 };
 

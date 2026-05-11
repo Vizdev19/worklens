@@ -50,6 +50,10 @@ class Organization(Base):
     stripe_subscription_id = Column(String, nullable=True)
     trial_ends_at          = Column(DateTime(timezone=True), nullable=True)
 
+    # Set to True once the admin completes the onboarding wizard.
+    # Stored server-side so the flag survives device switches / cache clears.
+    onboarding_done = Column(Boolean, default=False, nullable=False)
+
     # The admin who created the org.
     # use_alter=True breaks the circular FK: org → user → org.
     owner_id   = Column(

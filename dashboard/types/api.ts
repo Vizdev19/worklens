@@ -40,6 +40,7 @@ export interface Org {
   review_window_minutes: number;
   idle_skip_minutes: number;
   retention_days: number;
+  onboarding_done: boolean;
   trial_ends_at: string | null;
   created_at: string;
 }

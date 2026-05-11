@@ -517,10 +517,15 @@ export default function OnboardingPage() {
     });
   }, [router]);
 
-  function finishOnboarding() {
-    // Mark onboarding complete in localStorage so the dashboard
-    // doesn't redirect back here on subsequent logins.
-    localStorage.setItem("em_onboarding_done", "1");
+  async function finishOnboarding() {
+    // ARCH-8: persist the flag server-side (org.onboarding_done) so it
+    // survives device switches, incognito sessions, and cache clears.
+    try {
+      await orgsApi.update({ onboarding_done: true });
+    } catch {
+      // Non-fatal — the dashboard is still usable; the wizard may re-appear
+      // on the next login from a fresh device, but that's acceptable.
+    }
     router.replace("/dashboard");
   }
 
