@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
+from typing import Optional
 
 
 class Settings(BaseSettings):
@@ -25,6 +26,12 @@ class Settings(BaseSettings):
     # Frontend URL — used as the redirect target in Supabase verification emails.
     # Must be listed in Supabase Dashboard → Auth → URL Configuration → Allowed Redirect URLs.
     frontend_url: str = "http://localhost:3000"
+
+    # Bearer-style secret used by the CI release pipeline to publish new agent
+    # manifests via POST /agent/version. Keep this out of any client/agent build —
+    # it lives only in the backend env and the GitHub Actions secret store.
+    # If unset, the publish endpoint is disabled (manifest is read-only).
+    agent_release_key: Optional[str] = None
 
     model_config = SettingsConfigDict(
         env_file=".env",

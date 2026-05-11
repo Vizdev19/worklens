@@ -2,6 +2,7 @@ from sqlalchemy import (
     Column, String, Integer, Boolean, DateTime,
     ForeignKey, Enum as SAEnum
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import uuid
@@ -115,6 +116,34 @@ class Screenshot(Base):
     uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
 
     user = relationship("User", back_populates="screenshots")
+
+
+class AgentRelease(Base):
+    """
+    Single-row table holding the currently-published agent release manifest.
+
+    Schema is intentionally minimal: the launcher and updater only need to know
+    the latest version, the minimum version that's still allowed to upload, and
+    where to fetch each platform's binary. Per-channel rollouts (beta/canary)
+    are out of scope for v1 — we use `id` as the channel key so adding a "beta"
+    row later is purely additive.
+
+    Updated by the CI release pipeline via POST /agent/version (auth: header
+    key X-Release-Key matching settings.agent_release_key).
+
+    `signature` is reserved for Ed25519 manifest signing — left null for now;
+    agents that fetch this and find it null skip the signature check.
+    """
+    __tablename__ = "agent_releases"
+
+    id = Column(String, primary_key=True)              # "stable" | "beta" | …
+    version = Column(String, nullable=False)           # "1.2.0"
+    min_supported = Column(String, nullable=False)     # "1.0.0"
+    released_at = Column(DateTime(timezone=True), server_default=func.now())
+    platforms = Column(JSONB, nullable=False)          # { "darwin-arm64": {url, sha256, size}, … }
+    signature = Column(String, nullable=True)          # reserved for Ed25519 — see brainstorm
+    notes = Column(String, nullable=True)              # human-readable changelog
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
 
 class DeletionLog(Base):
