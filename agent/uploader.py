@@ -25,8 +25,9 @@ def _handle_426(res: requests.Response) -> None:
     """
     Backend says this agent is below the published minimum version.
     Flip the global must_update flag so the capture loop and queue
-    flusher stop hammering the API. Phase 4's updater module will react
-    to this flag by downloading the new binary and exiting cleanly.
+    flusher stop hammering the API, then kick the updater so it
+    downloads the replacement immediately rather than waiting up to
+    an hour for its next scheduled tick.
     """
     min_version = res.headers.get("X-Min-Agent-Version") or "unknown"
     try:
@@ -40,6 +41,14 @@ def _handle_426(res: requests.Response) -> None:
         pass
     print(f"[uploader] Server requires agent >= {min_version}. Halting captures.")
     state.require_update(min_version)
+    # Inline import: updater module imports state but not the other way
+    # round; this keeps the dependency graph one-way even if someone
+    # adds a state→updater call later.
+    try:
+        import updater
+        updater.request_immediate_check()
+    except Exception as e:
+        print(f"[uploader] could not signal updater: {e}")
 
 
 def _do_upload(image_bytes: bytes, monitor_idx: int, captured_at: str) -> bool:

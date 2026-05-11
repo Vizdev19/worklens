@@ -24,10 +24,17 @@ _state = {
     "tracking": True,              # employee toggle — when False, capture_job is a no-op
     # Force-update flag — set when the backend returns 426 on an upload.
     # While True, capture_job, review_upload_job, and the offline queue
-    # flusher all no-op. Phase 4's updater will react to this by downloading
-    # the new binary and exiting; until then it's just a kill switch.
+    # flusher all no-op. Phase 4's updater reacts to this by downloading
+    # the new binary immediately and triggering a launcher relaunch.
     "must_update": False,
     "must_update_min_version": None,   # version the server told us we need
+
+    # Normal-path update signals, set by the updater module.
+    # update_available is True from the moment we learn a newer version
+    # exists; update_ready flips to True only after download+verify+stage.
+    "update_available": False,
+    "update_version": None,
+    "update_ready": False,
 }
 
 
@@ -88,6 +95,24 @@ def must_update_required() -> bool:
         return _state["must_update"]
 
 
+def set_update_available(version: str, ready: bool):
+    """
+    Updater module → UI. Called once when we discover a newer version
+    (ready=False) and again after the download+verify+rename completes
+    (ready=True). The local status page distinguishes the two visually:
+    'Downloading update v1.2.1…' vs 'Update ready — restart for v1.2.1'.
+    """
+    with _lock:
+        _state["update_available"] = True
+        _state["update_version"] = version
+        _state["update_ready"] = bool(ready)
+
+
+def update_is_ready() -> bool:
+    with _lock:
+        return _state["update_ready"]
+
+
 def snapshot() -> dict:
     """Return everything the UI needs to render."""
     from config import CAPTURE_INTERVAL_MINUTES, IDLE_SKIP_MINUTES, REVIEW_WINDOW_MINUTES, AGENT_VERSION
@@ -112,4 +137,7 @@ def snapshot() -> dict:
         "tracking": s["tracking"],
         "must_update": s["must_update"],
         "must_update_min_version": s["must_update_min_version"],
+        "update_available": s["update_available"],
+        "update_version": s["update_version"],
+        "update_ready": s["update_ready"],
     }

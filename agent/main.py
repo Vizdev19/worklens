@@ -66,6 +66,7 @@ import idle
 import queue_manager
 import review_queue
 import state
+import updater
 import uploader
 from config import AGENT_VERSION, CAPTURE_INTERVAL_MINUTES, IDLE_SKIP_MINUTES, SERVER_URL
 
@@ -191,6 +192,7 @@ def _report_deletion(captured_at: str, monitor_idx: int):
                 pass
             print(f"[main] Deletion-log gate: server requires >= {min_version}. Halting.")
             state.require_update(min_version)
+            updater.request_immediate_check()
     except Exception as e:
         print(f"[main] Deletion log report failed (will retry next cycle): {e}")
 
@@ -217,14 +219,20 @@ def scheduler_loop():
 # ── Sign out ────────────────────────────────────────────────────────────────
 
 def on_signout():
-    """Stop scheduler, clear creds, remove auto-start, exit cleanly."""
+    """
+    Stop scheduler, clear creds, remove auto-start, exit cleanly.
+
+    The legacy implementation called os._exit(0) here with a "pywebview
+    can hang on regular sys.exit" comment, but pywebview was removed in
+    the browser-UI migration. os._exit also skips atexit handlers and
+    SQLite WAL checkpoints, AND short-circuits the auto-update restart
+    branch in __main__ below — so we let main() return cleanly instead.
+    """
     print("[main] Sign-out requested")
     state.stop()
     auth.logout()
     autostart.uninstall()
-    print("[main] Signed out — exiting in 1s")
-    time.sleep(1)
-    os._exit(0)  # Force exit; pywebview can hang on regular sys.exit
+    print("[main] Signed out — main loop will exit on next tick")
 
 
 # ── Platform checks ─────────────────────────────────────────────────────────
@@ -263,6 +271,13 @@ def main():
     idle.start_idle_tracker()
     print("[main] Idle tracker running")
 
+    # 3b. Start the auto-update poller. Runs in its own thread, polls the
+    # manifest hourly with ±15min jitter, downloads + stages new builds
+    # into <install_dir>/updates/<v>.ready/. The Go launcher promotes them
+    # on next start; the relaunch is triggered from the __main__ block
+    # below once main() returns.
+    updater.start()
+
     # 4. Start scheduler in background thread
     sched_thread = threading.Thread(target=scheduler_loop, daemon=True)
     sched_thread.start()
@@ -278,3 +293,18 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+    # main() returns when state.is_running() flips False. That happens
+    # on either of:
+    #   - on_signout() — clean shutdown, no relaunch wanted
+    #   - updater.trigger_restart_for_update() — staged update is ready
+    #     and we want the Go launcher to promote it + start the new build
+    #
+    # For the second case we need to drop the single-instance lock *before*
+    # the launcher's child agent tries to acquire it, otherwise the new
+    # process loses the race against this still-exiting one.
+    if updater.restart_was_requested():
+        print("[main] restart requested — releasing lock and spawning launcher")
+        single_instance.release()
+        updater.perform_restart_relaunch()
+    sys.exit(0)

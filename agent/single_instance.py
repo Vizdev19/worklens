@@ -27,6 +27,30 @@ def _lock_path() -> Path:
     return state_dir() / "agent.lock"
 
 
+def release() -> None:
+    """
+    Explicitly release the single-instance lock.
+
+    Used during the auto-update relaunch: the updater spawns the launcher
+    as a detached subprocess, which will exec the new agent. If we left
+    the lock held until the Python interpreter exits, the new agent could
+    hit acquire() before we're gone — single_instance.acquire() would
+    fail, the new agent would just open the UI URL and exit, leaving the
+    user with no agent running.
+
+    By closing the file handle here we make sure the kernel releases the
+    fcntl/msvcrt lock immediately, even if our process lingers for a
+    moment doing cleanup. Safe to call multiple times.
+    """
+    global _lock_handle
+    if _lock_handle is not None:
+        try:
+            _lock_handle.close()
+        except Exception:
+            pass
+        _lock_handle = None
+
+
 def acquire() -> bool:
     """
     Try to claim the single-instance lock.

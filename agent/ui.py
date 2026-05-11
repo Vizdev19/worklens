@@ -207,6 +207,23 @@ class _Handler(BaseHTTPRequestHandler):
                 threading.Thread(target=_on_signout, daemon=True).start()
             return
 
+        if rest == "/api/restart-for-update":
+            # User clicked "Restart now" on the update banner. We confirm
+            # there's actually a staged ready directory before flipping
+            # state — otherwise a stale UI poll could restart the agent
+            # without an update to apply.
+            import updater
+            if not state.update_is_ready():
+                self._send_json(409, {"ok": False, "detail": "no update staged"})
+                return
+            self._send_json(200, {"ok": True})
+            # Trigger from a worker so this HTTP response can flush first.
+            threading.Thread(
+                target=updater.trigger_restart_for_update,
+                daemon=True,
+            ).start()
+            return
+
         self._send(404, b"Not Found")
 
     def do_DELETE(self):
@@ -355,6 +372,32 @@ HTML = r"""<!doctype html>
   }
   .upload-now-btn:hover { background: #4338ca; }
   .upload-now-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* ── Update banner ─────────────────────────────────────────────── */
+  /* Hidden by default; refresh() flips display when an update is in flight.
+     Two variants: green/ready and red/force. Downloading shows neutral. */
+  .update-banner { display: none; }
+  .update-banner.ready {
+    background: #ecfdf5; border-color: #a7f3d0; color: #065f46;
+  }
+  .update-banner.force {
+    background: #fef2f2; border-color: #fecaca; color: #991b1b;
+  }
+  .update-banner.downloading {
+    background: #f1f5f9; border-color: #e2e8f0; color: #475569;
+  }
+  .update-text { font-size: 13px; line-height: 1.4; }
+  .update-version { font-weight: 600; }
+  .restart-btn {
+    width: 100%; border: none; padding: 9px; margin-top: 10px;
+    background: #4f46e5; color: white; border-radius: 8px;
+    font-family: inherit; font-size: 13px; font-weight: 600;
+    cursor: pointer; transition: background 0.15s;
+  }
+  .restart-btn:hover { background: #4338ca; }
+  .restart-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+  .update-banner.force .restart-btn { background: #dc2626; }
+  .update-banner.force .restart-btn:hover { background: #b91c1c; }
 </style>
 </head>
 <body>
@@ -369,6 +412,9 @@ HTML = r"""<!doctype html>
     <div class="name" id="name">Loading…</div>
     <div class="id"   id="email"></div>
   </div>
+
+  <!-- Update banner. Populated by refresh() when state.update_available is set. -->
+  <div class="card update-banner" id="updateBanner"></div>
 
   <div class="card">
     <div class="status-row">
@@ -407,6 +453,18 @@ HTML = r"""<!doctype html>
 <script>
   const $ = id => document.getElementById(id);
 
+  // Minimal HTML-escape so a malformed manifest version string can't
+  // inject markup into the banner. The server's manifest is trusted but
+  // not validated for HTML-safety — cheap defence in depth.
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
   function relative(iso) {
     if (!iso) return "—";
     const seconds = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
@@ -432,15 +490,14 @@ HTML = r"""<!doctype html>
       $("name").textContent  = s.full_name || "—";
       $("email").textContent = s.email_or_id ? "ID: " + s.email_or_id.slice(0, 8) + "…" : "";
 
+      // ── Status dot + label ──────────────────────────────────────────────
       const dot = $("dot");
-      // Force-update state overrides everything else — red dot, clear message.
-      // Phase 4 will replace this with a real "Restart for update" banner once
-      // the updater can actually download a new build.
       if (s.must_update) {
+        // Force-update mode — captures are halted at the agent level.
+        // The actionable text lives in the banner below; here we just
+        // explain the dot.
         dot.className = "dot offline";
-        const need = s.must_update_min_version || "newer";
-        $("statusText").textContent =
-          "Update required (need v" + need + "). Captures paused.";
+        $("statusText").textContent = "Captures paused";
       } else {
         dot.className = "dot " + s.status;
         const labels = {
@@ -452,6 +509,44 @@ HTML = r"""<!doctype html>
           stopped:  "Stopped",
         };
         $("statusText").textContent = labels[s.status] || s.status;
+      }
+
+      // ── Update banner ───────────────────────────────────────────────────
+      // Four visible states:
+      //   must_update + ready          → red, "Restart now"
+      //   must_update + downloading    → red, no button, "downloading…"
+      //   normal upgrade + ready       → green, "Restart now"
+      //   normal upgrade + downloading → grey, no button, "downloading…"
+      const banner = $("updateBanner");
+      if (s.update_available) {
+        const v = s.update_version || "newer";
+        if (s.update_ready) {
+          banner.className = "card update-banner " + (s.must_update ? "force" : "ready");
+          banner.innerHTML =
+            '<div class="update-text">' +
+              (s.must_update
+                ? '<strong>Update required.</strong> Restart to install '
+                : '<strong>Update ready.</strong> Restart to upgrade to ') +
+              '<span class="update-version">v' + escapeHtml(v) + '</span>.' +
+            '</div>' +
+            '<button class="restart-btn" id="restartBtn">Restart now</button>';
+          const btn = $("restartBtn");
+          if (btn) btn.addEventListener("click", restartForUpdate);
+        } else {
+          banner.className = "card update-banner " +
+            (s.must_update ? "force" : "downloading");
+          banner.innerHTML =
+            '<div class="update-text">' +
+              (s.must_update
+                ? '<strong>Update required.</strong> Downloading '
+                : 'Downloading update ') +
+              '<span class="update-version">v' + escapeHtml(v) + '</span>…' +
+            '</div>';
+        }
+        banner.style.display = "block";
+      } else {
+        banner.style.display = "none";
+        banner.innerHTML = "";
       }
 
       $("lastCapture").textContent = relative(s.last_capture_at);
@@ -486,6 +581,35 @@ HTML = r"""<!doctype html>
       btn.disabled = false;
     }
   });
+
+  async function restartForUpdate() {
+    if (!confirm("Restart Employee Monitor now to apply the update?")) return;
+    const btn = $("restartBtn");
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Restarting…";
+    }
+    try {
+      await api("/api/restart-for-update", { method: "POST" });
+      // Server is about to spawn the launcher and exit. Show a friendly
+      // page so the user knows the click landed.
+      document.body.innerHTML = `
+        <div style="padding:60px;text-align:center;color:#64748b;
+                    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+                    max-width:420px;margin:0 auto;">
+          <div style="font-size:48px;margin-bottom:8px;">🔄</div>
+          <h2 style="color:#0f172a;margin-bottom:8px;">Restarting…</h2>
+          <p>Employee Monitor is applying the update.<br>
+             A new tab will open in a few seconds.</p>
+        </div>`;
+    } catch (e) {
+      alert("Restart failed: " + e.message);
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "Restart now";
+      }
+    }
+  }
 
   $("signoutBtn").addEventListener("click", async () => {
     if (!confirm("Sign out and stop monitoring?")) return;
