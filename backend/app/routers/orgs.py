@@ -120,29 +120,55 @@ async def signup(
 
     supabase_id: str = resp.json()["id"]
 
-    # ── Create org and admin profile ────────────────────────────────────────
-    org = Organization(
-        name=body.company_name,
-        slug=slug,
-        plan=plan,
-        is_active=True,   # Supabase guards login; no need for our own gate
-        max_seats=defaults["max_seats"],
-        retention_days=defaults["retention_days"],
-    )
-    db.add(org)
-    await db.flush()          # resolves org.id
+    # ── Create org and admin profile ─────────────────────────────────────────
+    # CB-6/ARCH-2: If any DB step fails we must delete the Supabase auth user
+    # to avoid a permanent orphan (a Supabase user with no local profile means
+    # the email address is permanently blocked from re-registering).
+    async def _delete_supabase_user(uid: str) -> None:
+        try:
+            async with httpx.AsyncClient(timeout=10) as c:
+                await c.delete(
+                    f"{settings.supabase_url}/auth/v1/admin/users/{uid}",
+                    headers={
+                        "apikey": settings.supabase_service_key,
+                        "Authorization": f"Bearer {settings.supabase_service_key}",
+                    },
+                )
+        except Exception:
+            pass  # best-effort; log in production
 
-    user = User(
-        id=supabase_id,       # must match Supabase UUID for JWT → profile lookup
-        email=body.email,
-        full_name=body.admin_name,
-        role=UserRole.admin,
-        org_id=org.id,
-    )
-    db.add(user)
-    await db.flush()          # resolves user.id
+    try:
+        org = Organization(
+            name=body.company_name,
+            slug=slug,
+            plan=plan,
+            is_active=True,   # Supabase guards login; no need for our own gate
+            max_seats=defaults["max_seats"],
+            retention_days=defaults["retention_days"],
+        )
+        db.add(org)
+        await db.flush()          # resolves org.id
 
-    org.owner_id = user.id
+        user = User(
+            id=supabase_id,       # must match Supabase UUID for JWT → profile lookup
+            email=body.email,
+            full_name=body.admin_name,
+            role=UserRole.admin,
+            org_id=org.id,
+        )
+        db.add(user)
+        await db.flush()          # resolves user.id
+
+        org.owner_id = user.id
+    except Exception:
+        # Roll back the DB transaction and clean up the Supabase auth user
+        # so the email address is not permanently locked.
+        await db.rollback()
+        await _delete_supabase_user(supabase_id)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to create organization. Please try again.",
+        )
 
     return {
         "message": (

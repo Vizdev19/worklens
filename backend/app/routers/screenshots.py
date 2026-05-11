@@ -149,7 +149,7 @@ async def list_screenshots(
     )
 
     if all_stale_paths:
-        new_urls = get_signed_urls_batch(all_stale_paths)
+        new_urls = await get_signed_urls_batch(all_stale_paths)
         for item in stale:
             if item.file_path in new_urls:
                 item.file_url = new_urls[item.file_path]

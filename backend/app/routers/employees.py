@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from typing import Optional
 import httpx
 
 from app.config import get_settings
 from app.database import get_db
-from app.models import User, UserRole
+from app.models import Organization, User, UserRole
 from app.schemas import UserOut, UserCreate
 from app.auth import require_admin, get_current_user
 
@@ -64,6 +64,30 @@ async def create_employee(
 
     if len(body.password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters")
+
+    # ARCH-7: enforce plan seat limit before touching Supabase
+    org = (await db.execute(
+        select(Organization).where(Organization.id == org_id)
+    )).scalar_one_or_none()
+    if org is None:
+        raise HTTPException(500, "Organization record not found")
+
+    active_count = (await db.execute(
+        select(func.count()).select_from(User).where(
+            User.org_id == org_id,
+            User.role == UserRole.employee,
+            User.is_active == True,   # noqa: E712
+        )
+    )).scalar() or 0
+
+    if active_count >= org.max_seats:
+        raise HTTPException(
+            status_code=402,
+            detail=(
+                f"Seat limit reached ({active_count}/{org.max_seats}). "
+                "Upgrade your plan to add more employees."
+            ),
+        )
 
     # ── Create auth user in Supabase ─────────────────────────────────────────
     async with httpx.AsyncClient(timeout=15) as client:
