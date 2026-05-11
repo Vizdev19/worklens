@@ -67,7 +67,7 @@ import queue_manager
 import review_queue
 import state
 import uploader
-from config import CAPTURE_INTERVAL_MINUTES, IDLE_SKIP_MINUTES, SERVER_URL
+from config import AGENT_VERSION, CAPTURE_INTERVAL_MINUTES, IDLE_SKIP_MINUTES, SERVER_URL
 
 OS = platform.system()
 
@@ -81,6 +81,11 @@ def capture_job():
     once the review window has passed or the employee approves them.
     """
     if not state.is_running():
+        return
+
+    # Force-update wall: the server has told us this build is too old.
+    # Skip capture entirely until Phase 4's updater swaps us out.
+    if state.must_update_required():
         return
 
     if not state.is_tracking():
@@ -122,6 +127,9 @@ def review_upload_job():
     Periodic task (every ~30s): auto-approve expired screenshots, upload
     approved ones, and report any deletion events to the server.
     """
+    if state.must_update_required():
+        return
+
     # 1. Auto-approve screenshots whose review window has elapsed
     approved = review_queue.auto_approve_expired()
     if approved:
@@ -153,17 +161,36 @@ def review_upload_job():
 
 def _report_deletion(captured_at: str, monitor_idx: int):
     """POST a deletion event to the server audit log (best-effort)."""
+    if state.must_update_required():
+        return
     token = auth.get_access_token()
     if not token:
         return
     try:
         import requests as _req
-        _req.post(
+        res = _req.post(
             f"{SERVER_URL}/screenshots/deletion-log",
             json={"captured_at": captured_at, "monitor_index": monitor_idx},
-            headers={"Authorization": f"Bearer {token}"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Agent-Version": AGENT_VERSION,
+            },
             timeout=10,
         )
+        if res.status_code == 426:
+            # Mirror the uploader's 426 handler so the deletion path can't
+            # quietly keep retrying after the gate has slammed shut.
+            min_version = res.headers.get("X-Min-Agent-Version") or "unknown"
+            try:
+                body = res.json()
+                if isinstance(body, dict):
+                    detail = body.get("detail") or {}
+                    if isinstance(detail, dict):
+                        min_version = detail.get("min_supported") or min_version
+            except Exception:
+                pass
+            print(f"[main] Deletion-log gate: server requires >= {min_version}. Halting.")
+            state.require_update(min_version)
     except Exception as e:
         print(f"[main] Deletion log report failed (will retry next cycle): {e}")
 

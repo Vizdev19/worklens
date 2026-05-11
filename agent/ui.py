@@ -433,16 +433,26 @@ HTML = r"""<!doctype html>
       $("email").textContent = s.email_or_id ? "ID: " + s.email_or_id.slice(0, 8) + "…" : "";
 
       const dot = $("dot");
-      dot.className = "dot " + s.status;
-      const labels = {
-        active:   "Monitoring active",
-        idle:     "Idle — capture paused",
-        offline:  "Offline — uploads queued",
-        starting: "Starting…",
-        paused:   "Tracking stopped",
-        stopped:  "Stopped",
-      };
-      $("statusText").textContent = labels[s.status] || s.status;
+      // Force-update state overrides everything else — red dot, clear message.
+      // Phase 4 will replace this with a real "Restart for update" banner once
+      // the updater can actually download a new build.
+      if (s.must_update) {
+        dot.className = "dot offline";
+        const need = s.must_update_min_version || "newer";
+        $("statusText").textContent =
+          "Update required (need v" + need + "). Captures paused.";
+      } else {
+        dot.className = "dot " + s.status;
+        const labels = {
+          active:   "Monitoring active",
+          idle:     "Idle — capture paused",
+          offline:  "Offline — uploads queued",
+          starting: "Starting…",
+          paused:   "Tracking stopped",
+          stopped:  "Stopped",
+        };
+        $("statusText").textContent = labels[s.status] || s.status;
+      }
 
       $("lastCapture").textContent = relative(s.last_capture_at);
       $("capturesToday").textContent = s.captures_today;

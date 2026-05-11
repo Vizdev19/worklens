@@ -8,6 +8,7 @@ from app.database import get_db
 from app.models import Screenshot, User, DeletionLog
 from app.schemas import ScreenshotOut, ScreenshotListResponse, DeletionLogCreate, DeletionLogOut
 from app.auth import get_current_user, require_admin
+from app.agent_gate import require_min_agent_version
 from app.storage import (
     upload_screenshot,
     get_signed_urls_batch,
@@ -44,6 +45,10 @@ async def upload(
     os_platform: str = Form(...),         # Windows / Darwin / Linux
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    # Force-update gate — 426 before we touch storage if agent is below
+    # the published min_supported version. Return value is the agent's
+    # reported version, available for telemetry once heartbeats land.
+    _agent_version: str = Depends(require_min_agent_version),
 ):
     # Validate file type
     content_type = file.content_type or "image/jpeg"
@@ -164,6 +169,7 @@ async def log_deletion(
     body: DeletionLogCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _agent_version: str = Depends(require_min_agent_version),
 ):
     """
     Called by the agent when an employee removes a screenshot during review.
