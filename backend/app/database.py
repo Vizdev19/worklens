@@ -83,10 +83,12 @@ async def init_db():
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS org_id TEXT REFERENCES organizations(id)",
             # email_verified column (legacy — Supabase now owns verification)
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT TRUE",
-            # Multi-tenancy: org_id on screenshots
+            # Multi-tenancy: org_id on screenshots (now part of ORM model — index added)
             "ALTER TABLE screenshots ADD COLUMN IF NOT EXISTS org_id TEXT REFERENCES organizations(id)",
-            # Multi-tenancy: org_id on deletion_logs
+            "CREATE INDEX IF NOT EXISTS ix_screenshots_org_id ON screenshots (org_id)",
+            # Multi-tenancy: org_id on deletion_logs (now part of ORM model — index added)
             "ALTER TABLE deletion_logs ADD COLUMN IF NOT EXISTS org_id TEXT REFERENCES organizations(id)",
+            "CREATE INDEX IF NOT EXISTS ix_deletion_logs_org_id ON deletion_logs (org_id)",
             # Supabase Auth migration: passwords are now managed by Supabase;
             # allow NULL so new users created via the Admin API have no local hash.
             "ALTER TABLE users ALTER COLUMN hashed_password DROP NOT NULL",

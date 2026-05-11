@@ -97,6 +97,9 @@ class Screenshot(Base):
 
     id = Column(String, primary_key=True, default=gen_uuid)
     user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    # org_id mirrors the uploading user's org — enables O(1) tenant-scoped queries
+    # without a join through users every time.
+    org_id = Column(String, ForeignKey("organizations.id"), nullable=True, index=True)
     file_path = Column(String, nullable=False)       # Supabase storage path
     file_url = Column(String, nullable=False)        # Public/signed URL
     thumbnail_path = Column(String, nullable=True)  # Supabase path for 400px thumb
@@ -116,6 +119,8 @@ class DeletionLog(Base):
 
     id = Column(String, primary_key=True, default=gen_uuid)
     user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    # org_id mirrors the deleting user's org — same rationale as Screenshot.org_id.
+    org_id = Column(String, ForeignKey("organizations.id"), nullable=True, index=True)
     captured_at = Column(DateTime(timezone=True), nullable=False)
     monitor_index = Column(Integer, default=0)
     deleted_at = Column(DateTime(timezone=True), server_default=func.now())

@@ -26,6 +26,16 @@ CAPTURED_AT_PAST_TOLERANCE = timedelta(hours=24)
 CAPTURED_AT_FUTURE_TOLERANCE = timedelta(minutes=5)
 
 
+def _assert_org(admin: User) -> str:
+    """Return org_id or raise 403 for org-less bootstrap admins."""
+    if not admin.org_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Your account is not associated with an organization.",
+        )
+    return admin.org_id
+
+
 @router.post("/upload", response_model=ScreenshotOut)
 async def upload(
     file: UploadFile = File(...),
@@ -67,9 +77,10 @@ async def upload(
         content_type=content_type,
     )
 
-    # Save metadata to PostgreSQL
+    # Save metadata — tag with org_id so admin queries can filter without a join
     screenshot = Screenshot(
         user_id=current_user.id,
+        org_id=current_user.org_id,          # SEC-2/CB-3: populate for tenant scoping
         file_path=storage_result["file_path"],
         file_url=storage_result["file_url"],
         thumbnail_path=storage_result.get("thumbnail_path"),
@@ -84,36 +95,49 @@ async def upload(
     return screenshot
 
 
-@router.get("/", response_model=ScreenshotListResponse, dependencies=[Depends(require_admin)])
+@router.get("/", response_model=ScreenshotListResponse)
 async def list_screenshots(
     employee_id: Optional[str] = Query(None),
     date_from: Optional[datetime] = Query(None),
     date_to: Optional[datetime] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
+    current_admin: User = Depends(require_admin),   # SEC-2: need the admin's org_id
     db: AsyncSession = Depends(get_db),
 ):
-    filters = []
+    org_id = _assert_org(current_admin)
+
+    # Always scope to the admin's org first — this is the tenant boundary.
+    filters = [Screenshot.org_id == org_id]
+
     if employee_id:
+        # Validate the requested employee actually belongs to this org
+        # to prevent admins guessing UUIDs from other orgs.
+        emp = (await db.execute(
+            select(User).where(User.id == employee_id, User.org_id == org_id)
+        )).scalar_one_or_none()
+        if not emp:
+            raise HTTPException(status_code=404, detail="Employee not found")
         filters.append(Screenshot.user_id == employee_id)
+
     if date_from:
         filters.append(Screenshot.captured_at >= date_from)
     if date_to:
         filters.append(Screenshot.captured_at <= date_to)
 
-    count_q = select(func.count()).select_from(Screenshot)
-    if filters:
-        count_q = count_q.where(and_(*filters))
-    total = (await db.execute(count_q)).scalar()
+    total = (await db.execute(
+        select(func.count()).select_from(Screenshot).where(and_(*filters))
+    )).scalar()
 
-    q = select(Screenshot).order_by(Screenshot.captured_at.desc())
-    if filters:
-        q = q.where(and_(*filters))
-    q = q.offset((page - 1) * page_size).limit(page_size)
-    items = (await db.execute(q)).scalars().all()
+    items = (await db.execute(
+        select(Screenshot)
+        .where(and_(*filters))
+        .order_by(Screenshot.captured_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )).scalars().all()
 
-    # Stored signed URLs are 24h-valid. Only refresh ones that are stale
-    # (uploaded > 23h ago) — single batch call to Supabase for all paths.
+    # Refresh stale signed URLs in a single batch call
     now = datetime.now(timezone.utc)
     refresh_cutoff = now - timedelta(
         seconds=SIGNED_URL_TTL_SECONDS - URL_REFRESH_THRESHOLD_SECONDS
@@ -147,6 +171,7 @@ async def log_deletion(
     """
     entry = DeletionLog(
         user_id=current_user.id,
+        org_id=current_user.org_id,          # SEC-5/CB-3: tag with org for scoped queries
         captured_at=body.captured_at,
         monitor_index=body.monitor_index,
     )
@@ -155,33 +180,43 @@ async def log_deletion(
     return entry
 
 
-@router.get(
-    "/deletion-log",
-    response_model=list[DeletionLogOut],
-    dependencies=[Depends(require_admin)],
-)
+@router.get("/deletion-log", response_model=list[DeletionLogOut])
 async def list_deletions(
     employee_id: Optional[str] = Query(None),
     date_from: Optional[datetime] = Query(None),
     date_to: Optional[datetime] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
+    current_admin: User = Depends(require_admin),   # SEC-5: need the admin's org_id
     db: AsyncSession = Depends(get_db),
 ):
     """Admin view: which screenshots were removed by employees before upload."""
-    filters = []
+    org_id = _assert_org(current_admin)
+
+    # Always scope to the admin's org first
+    filters = [DeletionLog.org_id == org_id]
+
     if employee_id:
+        # Validate the employee belongs to this org before filtering by them
+        emp = (await db.execute(
+            select(User).where(User.id == employee_id, User.org_id == org_id)
+        )).scalar_one_or_none()
+        if not emp:
+            raise HTTPException(status_code=404, detail="Employee not found")
         filters.append(DeletionLog.user_id == employee_id)
+
     if date_from:
         filters.append(DeletionLog.captured_at >= date_from)
     if date_to:
         filters.append(DeletionLog.captured_at <= date_to)
 
-    q = select(DeletionLog).order_by(DeletionLog.deleted_at.desc())
-    if filters:
-        q = q.where(and_(*filters))
-    q = q.offset((page - 1) * page_size).limit(page_size)
-    items = (await db.execute(q)).scalars().all()
+    items = (await db.execute(
+        select(DeletionLog)
+        .where(and_(*filters))
+        .order_by(DeletionLog.deleted_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )).scalars().all()
     return items
 
 
@@ -192,6 +227,7 @@ async def my_screenshots(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """Employee endpoint — only ever returns that employee's own screenshots."""
     total = (await db.execute(
         select(func.count()).select_from(Screenshot)
         .where(Screenshot.user_id == current_user.id)
@@ -201,7 +237,8 @@ async def my_screenshots(
         select(Screenshot)
         .where(Screenshot.user_id == current_user.id)
         .order_by(Screenshot.captured_at.desc())
-        .offset((page - 1) * page_size).limit(page_size)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
     )).scalars().all()
 
     return ScreenshotListResponse(total=total, items=items)

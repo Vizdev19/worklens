@@ -14,12 +14,33 @@ settings = get_settings()
 router = APIRouter(prefix="/employees", tags=["Employees"])
 
 
-@router.get("/", response_model=list[UserOut], dependencies=[Depends(require_admin)])
+def _assert_org(admin: User) -> str:
+    """
+    Return the admin's org_id, or raise 403 if the account has no org.
+
+    Bootstrap admins created via the CLI before org signup exist without
+    an org_id. They must complete the org signup flow before managing employees.
+    """
+    if not admin.org_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Your account is not associated with an organization. "
+                   "Complete the org setup at /onboarding first.",
+        )
+    return admin.org_id
+
+
+@router.get("/", response_model=list[UserOut])
 async def list_employees(
     is_active: Optional[bool] = Query(None),
+    current_admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    q = select(User).where(User.role == UserRole.employee)
+    org_id = _assert_org(current_admin)
+    q = select(User).where(
+        User.role == UserRole.employee,
+        User.org_id == org_id,           # SEC-1: only this org's employees
+    )
     if is_active is not None:
         q = q.where(User.is_active == is_active)
     result = await db.execute(q.order_by(User.full_name))
@@ -39,6 +60,8 @@ async def create_employee(
     2. Inserts a local profile row whose id matches the Supabase UUID.
     The employee can immediately sign in via the agent; no email verification needed.
     """
+    org_id = _assert_org(current_admin)
+
     if len(body.password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters")
 
@@ -67,6 +90,16 @@ async def create_employee(
     # ── Create local profile ─────────────────────────────────────────────────
     existing = await db.execute(select(User).where(User.email == body.email))
     if existing.scalar_one_or_none():
+        # Supabase user was created but local profile already exists — clean up
+        # the Supabase user to avoid an orphan.
+        async with httpx.AsyncClient(timeout=10) as client:
+            await client.delete(
+                f"{settings.supabase_url}/auth/v1/admin/users/{supabase_id}",
+                headers={
+                    "apikey": settings.supabase_service_key,
+                    "Authorization": f"Bearer {settings.supabase_service_key}",
+                },
+            )
         raise HTTPException(409, "Email already registered locally")
 
     user = User(
@@ -74,7 +107,7 @@ async def create_employee(
         email=body.email,
         full_name=body.full_name,
         role=UserRole.employee,  # force employee role; admins come via org signup
-        org_id=current_admin.org_id,
+        org_id=org_id,           # scoped to the creating admin's org
     )
     db.add(user)
     await db.flush()
@@ -87,18 +120,38 @@ async def get_me(current_user: User = Depends(get_current_user)):
     return current_user
 
 
-@router.get("/{employee_id}", response_model=UserOut, dependencies=[Depends(require_admin)])
-async def get_employee(employee_id: str, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).where(User.id == employee_id))
+@router.get("/{employee_id}", response_model=UserOut)
+async def get_employee(
+    employee_id: str,
+    current_admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    org_id = _assert_org(current_admin)
+    result = await db.execute(
+        select(User).where(
+            User.id == employee_id,
+            User.org_id == org_id,       # SEC-3: only look up employees in this org
+        )
+    )
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="Employee not found")
     return user
 
 
-@router.patch("/{employee_id}/deactivate", dependencies=[Depends(require_admin)])
-async def deactivate_employee(employee_id: str, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).where(User.id == employee_id))
+@router.patch("/{employee_id}/deactivate")
+async def deactivate_employee(
+    employee_id: str,
+    current_admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    org_id = _assert_org(current_admin)
+    result = await db.execute(
+        select(User).where(
+            User.id == employee_id,
+            User.org_id == org_id,       # SEC-4: only deactivate employees in this org
+        )
+    )
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="Employee not found")
@@ -106,9 +159,19 @@ async def deactivate_employee(employee_id: str, db: AsyncSession = Depends(get_d
     return {"detail": f"{user.full_name} deactivated"}
 
 
-@router.patch("/{employee_id}/activate", dependencies=[Depends(require_admin)])
-async def activate_employee(employee_id: str, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).where(User.id == employee_id))
+@router.patch("/{employee_id}/activate")
+async def activate_employee(
+    employee_id: str,
+    current_admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    org_id = _assert_org(current_admin)
+    result = await db.execute(
+        select(User).where(
+            User.id == employee_id,
+            User.org_id == org_id,       # SEC-4: only activate employees in this org
+        )
+    )
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="Employee not found")
