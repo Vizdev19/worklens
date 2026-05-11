@@ -1,0 +1,4 @@
+# Build artefacts — produced by build.sh and CI, never checked in.
+dist/
+EmployeeMonitor
+EmployeeMonitor.exe
