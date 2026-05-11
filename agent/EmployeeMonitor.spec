@@ -19,7 +19,12 @@ import sys
 from pathlib import Path
 
 block_cipher = None
-APP_NAME = "EmployeeMonitor"
+# Output binary name. As of 1.2.0 the user-facing "EmployeeMonitor" name
+# is owned by the Go launcher (the autostart target); this PyInstaller
+# bundle is the payload behind it. Keeping them distinct makes processes
+# legible in `ps` / Activity Monitor / Task Manager — you can tell at a
+# glance whether the bootstrapper or the actual agent is running.
+APP_NAME = "EmployeeMonitorAgent"
 HERE = Path(".").resolve()
 
 # Collect runtime data files
@@ -100,12 +105,15 @@ if sys.platform == "darwin":
         coll,
         name=f"{APP_NAME}.app",
         icon=icon_path,
+        # Distinct bundle id from the launcher (com.employeemonitor.launcher
+        # — future). Keeps LaunchServices / TCC entries separate so the agent
+        # can update without invalidating the user's Screen Recording grant.
         bundle_identifier="com.employeemonitor.agent",
         info_plist={
             "CFBundleName": APP_NAME,
             "CFBundleDisplayName": "Employee Monitor",
-            "CFBundleVersion": "1.0.0",
-            "CFBundleShortVersionString": "1.0.0",
+            "CFBundleVersion": "1.2.0",
+            "CFBundleShortVersionString": "1.2.0",
             "LSUIElement": True,                        # hide from Dock — runs as menubar app
             "NSHighResolutionCapable": True,
             "NSScreenCaptureUsageDescription":

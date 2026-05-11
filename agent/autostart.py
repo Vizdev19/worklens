@@ -17,13 +17,42 @@ OS = platform.system()
 def _executable_path() -> str:
     """Path the OS should launch on login.
 
-    On macOS we always point at the binary inside Contents/MacOS — NOT
-    at the .app via `open -a`. The `open` command exits immediately,
-    which causes launchd to thrash if KeepAlive is on.
+    For 1.2.0+ launcher-managed installs this returns the Go launcher
+    binary, NOT the agent's PyInstaller bundle. The launcher is what's
+    stable across agent updates — every released agent binary lives
+    under bin/<version>/, but the launcher path never changes, so the
+    autostart entry written here keeps working as the agent updates
+    itself in place.
+
+    Fallback order:
+      1. paths.launcher_path()           — frozen launcher-managed install
+      2. sys.executable                  — frozen install without launcher
+                                           (legacy 1.1.3-style or broken
+                                            layout we shouldn't write to)
+      3. python interpreter + main.py    — running from source (dev mode)
+
+    On macOS we always point at a plain binary path, NOT at the .app via
+    `open -a`. `open` exits immediately, which causes launchd to thrash
+    if KeepAlive is on.
     """
     if getattr(sys, "frozen", False):
+        # Prefer the launcher when it exists alongside us. paths is
+        # imported lazily so any path-resolution failure (no XDG home,
+        # unusual filesystem) falls through to the next branch instead
+        # of crashing autostart entirely.
+        try:
+            from paths import launcher_path
+            lp = launcher_path()
+            if lp.exists():
+                return str(lp)
+        except Exception as e:
+            print(f"[autostart] launcher lookup failed: {e}")
         return sys.executable
-    # Dev mode — Python interpreter + script (used for local testing)
+
+    # Dev / source mode — Python interpreter + script. The single-string
+    # form below is fine for the Windows Run key but not for launchd
+    # (which doesn't parse spaces inside one <string>). Dev users don't
+    # typically enable autostart, so we don't bother splitting here.
     return f"{sys.executable} {Path(__file__).parent / 'main.py'}"
 
 

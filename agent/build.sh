@@ -1,19 +1,46 @@
 #!/usr/bin/env bash
-# Build the Employee Monitor agent into a native executable.
+# Build the Employee Monitor agent PyInstaller bundle and package it
+# into a platform-specific archive consumable by:
+#   - the in-agent updater (which downloads + verifies SHA-256 of the
+#     archive listed in /agent/version manifest)
+#   - the launcher (which extracts into bin/<version>/ and execs the
+#     binary it expects to find inside)
 #
-# Usage:
-#   ./build.sh
+# Layout produced (under dist/):
 #
-# Output (macOS):
-#   dist/EmployeeMonitor.app          ← drag to /Applications
-#   dist/EmployeeMonitor-1.0.0.dmg    ← shareable installer
+#   macOS    EmployeeMonitorAgent-<version>-darwin-<arch>.tar.gz
+#              └─ contains EmployeeMonitorAgent.app/Contents/MacOS/...
+#
+#   Linux    EmployeeMonitorAgent-<version>-linux-amd64.tar.gz
+#              └─ contains EmployeeMonitorAgent + _internal/ at the root
+#                 (PyInstaller onedir layout, flattened)
+#
+#   Windows  EmployeeMonitorAgent-<version>-windows-amd64.zip
+#              └─ contains EmployeeMonitorAgent.exe + _internal/ at root
+#
+# The "flattened" layout for Linux/Windows means the archive root contains
+# the agent binary directly — when extracted into bin/<version>/, the
+# launcher finds it at bin/<version>/EmployeeMonitorAgent[.exe]. (See
+# launcher/main.go : agentBinaryInside.)
+#
+# This script does NOT sign or notarize anything. v1 ships unsigned per
+# the auto-update brainstorm; CI (Phase 6) will run this and then layer
+# signing on top once the cert budget is approved.
 
 set -euo pipefail
 
-APP_NAME="EmployeeMonitor"
-VERSION="1.0.0"
+APP_NAME="EmployeeMonitorAgent"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$HERE"
+
+# Pull the version from config.py so it stays in lockstep with what the
+# agent reports to the backend. Single source of truth.
+VERSION=$(python3 -c "
+import re, pathlib
+m = re.search(r'__version__\s*=\s*[\"\\']([^\"\\']+)', pathlib.Path('config.py').read_text())
+print(m.group(1))
+")
+echo "📦 Building $APP_NAME v$VERSION"
 
 echo "🧹 Cleaning previous builds..."
 rm -rf build dist __pycache__
@@ -32,48 +59,93 @@ echo "📦 Installing build deps..."
 "$PY" -m pip install --quiet pyinstaller
 
 echo "🔨 Building executable..."
-"$PY" -m PyInstaller "$APP_NAME.spec" --clean --noconfirm
+"$PY" -m PyInstaller "EmployeeMonitor.spec" --clean --noconfirm
+
+# Resolve arch ("arm64" / "amd64") in the GOOS-GOARCH convention the
+# launcher and manifest use. uname -m returns x86_64 on Intel.
+RAW_ARCH="$(uname -m)"
+case "$RAW_ARCH" in
+  x86_64|amd64) ARCH="amd64" ;;
+  arm64|aarch64) ARCH="arm64" ;;
+  *) ARCH="$RAW_ARCH" ;;
+esac
 
 OS_KIND="$(uname -s)"
 case "$OS_KIND" in
   Darwin)
+    PLATFORM="darwin-$ARCH"
     APP_PATH="dist/${APP_NAME}.app"
     if [ ! -d "$APP_PATH" ]; then
       echo "❌ Build failed: $APP_PATH not found"
       exit 1
     fi
-    echo "✅ App built: $APP_PATH"
-
-    # Build a DMG if create-dmg is installed
-    if command -v create-dmg &>/dev/null; then
-      DMG_PATH="dist/${APP_NAME}-${VERSION}.dmg"
-      rm -f "$DMG_PATH"
-      echo "📀 Building DMG..."
-      create-dmg \
-        --volname "${APP_NAME} Installer" \
-        --window-size 500 300 \
-        --icon-size 100 \
-        --icon "${APP_NAME}.app" 130 130 \
-        --app-drop-link 370 130 \
-        "$DMG_PATH" \
-        "dist/${APP_NAME}.app"
-      echo "✅ DMG built: $DMG_PATH"
-    else
-      echo "ℹ️  Skipping DMG (install with: brew install create-dmg)"
-    fi
+    ARCHIVE="dist/${APP_NAME}-${VERSION}-${PLATFORM}.tar.gz"
+    echo "🗜  Packaging $ARCHIVE"
+    # -C dist so the archive contains "EmployeeMonitorAgent.app/" at
+    # the root, not "dist/EmployeeMonitorAgent.app/".
+    tar -czf "$ARCHIVE" -C dist "${APP_NAME}.app"
     ;;
 
   Linux)
-    BIN_PATH="dist/${APP_NAME}/${APP_NAME}"
-    [ -f "$BIN_PATH" ] || { echo "❌ Build failed"; exit 1; }
-    echo "✅ Binary built: $BIN_PATH"
+    PLATFORM="linux-$ARCH"
+    BUNDLE_DIR="dist/${APP_NAME}"
+    if [ ! -d "$BUNDLE_DIR" ]; then
+      echo "❌ Build failed: $BUNDLE_DIR not found"
+      exit 1
+    fi
+    ARCHIVE="dist/${APP_NAME}-${VERSION}-${PLATFORM}.tar.gz"
+    echo "🗜  Packaging $ARCHIVE"
+    # -C bundle_dir so the archive contains "EmployeeMonitorAgent" + "_internal/"
+    # at the root (the launcher's agentBinaryInside expects this).
+    tar -czf "$ARCHIVE" -C "$BUNDLE_DIR" .
     ;;
 
   MINGW*|CYGWIN*|MSYS*)
-    EXE_PATH="dist/${APP_NAME}/${APP_NAME}.exe"
-    [ -f "$EXE_PATH" ] || { echo "❌ Build failed"; exit 1; }
-    echo "✅ Executable built: $EXE_PATH"
+    PLATFORM="windows-amd64"
+    BUNDLE_DIR="dist/${APP_NAME}"
+    if [ ! -d "$BUNDLE_DIR" ]; then
+      echo "❌ Build failed: $BUNDLE_DIR not found"
+      exit 1
+    fi
+    ARCHIVE="dist/${APP_NAME}-${VERSION}-${PLATFORM}.zip"
+    echo "🗜  Packaging $ARCHIVE"
+    # PowerShell available even on minimal Windows runners; -CompressionLevel
+    # Optimal gives ~30% smaller archives than the default Fastest.
+    powershell -NoProfile -Command "
+      Compress-Archive -Force -CompressionLevel Optimal `
+        -Path 'dist/${APP_NAME}/*' -DestinationPath '${ARCHIVE}'
+    "
+    ;;
+
+  *)
+    echo "❌ Unsupported OS: $OS_KIND"
+    exit 1
     ;;
 esac
 
-echo "🎉 Done."
+# Compute SHA-256 for the manifest. The updater compares this exact
+# digest before extracting, so what we print here is what goes into
+# POST /agent/version's platforms.<key>.sha256 field.
+if command -v shasum &>/dev/null; then
+  SHA=$(shasum -a 256 "$ARCHIVE" | awk '{print $1}')
+elif command -v sha256sum &>/dev/null; then
+  SHA=$(sha256sum "$ARCHIVE" | awk '{print $1}')
+else
+  echo "⚠️  No shasum/sha256sum found; skipping hash"
+  SHA="(unknown)"
+fi
+SIZE=$(wc -c < "$ARCHIVE" | tr -d ' ')
+
+echo
+echo "✅ Built $ARCHIVE"
+echo "   platform: $PLATFORM"
+echo "   version:  $VERSION"
+echo "   size:     $SIZE bytes"
+echo "   sha256:   $SHA"
+echo
+echo "Manifest snippet for POST /agent/version:"
+echo "  \"$PLATFORM\": {"
+echo "    \"url\": \"<github-release-url>/${APP_NAME}-${VERSION}-${PLATFORM}.${ARCHIVE##*.}\","
+echo "    \"sha256\": \"$SHA\","
+echo "    \"size\": $SIZE"
+echo "  }"

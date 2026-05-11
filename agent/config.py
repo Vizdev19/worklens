@@ -23,7 +23,10 @@ from dotenv import load_dotenv
 #     1. Edit AGENT_VERSION
 #     2. git commit
 #     3. git tag agent-v<same-version>
-__version__ = "1.1.3"
+# 1.2.0 — first release under the launcher-managed install topology.
+# 1.1.3 and earlier are pre-auto-update and require manual reinstall;
+# the backend's min_supported can be set to 1.2.0 to force them out.
+__version__ = "1.2.0"
 AGENT_VERSION = __version__
 
 
