@@ -111,10 +111,13 @@ case "$OS_KIND" in
     echo "🗜  Packaging $ARCHIVE"
     # PowerShell available even on minimal Windows runners; -CompressionLevel
     # Optimal gives ~30% smaller archives than the default Fastest.
-    powershell -NoProfile -Command "
-      Compress-Archive -Force -CompressionLevel Optimal `
-        -Path 'dist/${APP_NAME}/*' -DestinationPath '${ARCHIVE}'
-    "
+    #
+    # Single-line invocation deliberately: the PowerShell line-continuation
+    # backtick (`) collides with bash's command-substitution syntax — even
+    # though only the MINGW branch ever runs this code, bash's *tokenizer*
+    # scans the whole script and would die with "unexpected EOF while looking
+    # for matching backtick" on every platform.
+    powershell -NoProfile -Command "Compress-Archive -Force -CompressionLevel Optimal -Path 'dist/${APP_NAME}/*' -DestinationPath '${ARCHIVE}'"
     ;;
 
   *)
