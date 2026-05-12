@@ -123,9 +123,15 @@ jobs:
           - runner: macos-14
             platform: darwin-arm64
             archive_ext: tar.gz
-          - runner: macos-13
-            platform: darwin-amd64
-            archive_ext: tar.gz
+          # macos-13 (Intel) is commented out: GitHub's hosted runner pool
+          # for Intel Mac is heavily oversubscribed and the job routinely
+          # queues for hours. Apple Silicon has been the default Mac since
+          # late 2020, so Intel users can fall back to running the arm64
+          # build under Rosetta 2 (works, just slower). Re-enable when the
+          # runner pool recovers, or move to self-hosted Intel hardware.
+          # - runner: macos-13
+          #   platform: darwin-amd64
+          #   archive_ext: tar.gz
           - runner: windows-2022
             platform: windows-amd64
             archive_ext: zip
@@ -287,8 +293,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Glob over whichever fragment files actually got built — keeps
+          # the publish step working when matrix entries are commented
+          # out (e.g. macos-13 disabled due to runner pool issues).
           python3 .github/scripts/publish_manifest.py \
-            artifacts/agent-darwin-arm64/darwin-arm64.json \
-            artifacts/agent-darwin-amd64/darwin-amd64.json \
-            artifacts/agent-windows-amd64/windows-amd64.json \
-            artifacts/agent-linux-amd64/linux-amd64.json
+            artifacts/agent-*/*.json
