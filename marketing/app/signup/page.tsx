@@ -15,8 +15,12 @@ import {
   ExternalLink,
 } from "lucide-react";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+// Build-time-validated env vars. In production, missing
+// NEXT_PUBLIC_API_URL or NEXT_PUBLIC_APP_URL fails `next build` with a
+// clear error instead of silently shipping localhost fallbacks (which
+// is why the "Sign in" button used to dead-end on localhost). See
+// lib/env.ts for the validation logic.
+import { API_URL, APP_URL } from "@/lib/env";
 
 type Plan = "free" | "starter" | "pro";
 

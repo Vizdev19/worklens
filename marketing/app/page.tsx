@@ -9,9 +9,11 @@ import {
   ArrowRight,
 } from "lucide-react";
 
-// Dashboard app URL — set NEXT_PUBLIC_APP_URL in Vercel env vars.
-// e.g. https://app.employeemonitor.com
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+// Dashboard app URL. APP_URL is validated at build time — missing
+// NEXT_PUBLIC_APP_URL in a production build fails `next build` with a
+// clear error rather than silently shipping localhost links. See
+// lib/env.ts for the validation logic.
+import { APP_URL } from "@/lib/env";
 
 const FEATURES = [
   {
