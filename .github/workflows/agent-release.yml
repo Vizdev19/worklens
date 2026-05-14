@@ -290,6 +290,12 @@ jobs:
           MIN_SUPPORTED:     ${{ needs.resolve-version.outputs.min_supported }}
           API_URL:           ${{ secrets.API_URL }}
           AGENT_RELEASE_KEY: ${{ secrets.AGENT_RELEASE_KEY }}
+          # Tag-triggered releases MUST publish — if a secret is missing
+          # we want a red workflow, not a silently-skipped manifest. For
+          # workflow_dispatch (manual reruns, forks, dry-runs) we stay
+          # lenient so contributors can validate the build pipeline
+          # without needing the production secrets.
+          STRICT_PUBLISH: ${{ github.event_name == 'push' && '1' || '0' }}
         shell: bash
         run: |
           set -euo pipefail

@@ -61,6 +61,37 @@ pipeline on a fork without leaking production secrets.
      `min_supported` moved past them).
    - The GitHub Release page has all the artifacts for manual install via `installer/install.sh` / `install.ps1`.
 
+## Deprecating an old fleet
+
+Pre-1.2.0 agents are the launcher-less generation — they have no updater
+module, so when `min_supported` moves past their version they receive a
+426 on every upload and **halt forever** with no path to discover the
+new release on their own. Before bumping `min_supported`:
+
+1. **Inventory.** Until we have agent telemetry (open audit item M7),
+   check who's still active by inspecting recent `Screenshot.user_id`
+   timestamps. Anyone whose last upload pre-dates your target deprecation
+   floor is probably still on the old build.
+
+2. **Notify.** Email those users at least 7 days before you flip
+   `min_supported`. Include:
+   - Why the change is happening (security fix, schema break, etc.)
+   - The download URL for the launcher-managed installer (Phase 5's
+     `installer/install.sh` + `install.ps1`)
+   - That their old agent will stop capturing on `<date>`
+
+3. **Flip.** Bump `agent/MIN_SUPPORTED` in the same release that ships
+   the replacement. The 426 gate kicks in the moment the manifest is
+   published.
+
+4. **Communicate stuck agents.** Any user who didn't reinstall before
+   the flip will report their agent as broken. Have a support template
+   ready pointing them at the installer scripts.
+
+This is a one-time pain — every 1.2.0+ install has the updater module
+and a force-update path that downloads and applies the new build
+automatically.
+
 ## What to do if a release fails partway
 
 The workflow is idempotent — re-running it (`workflow_dispatch` with

@@ -57,6 +57,13 @@ def main() -> int:
 
     api_url = (os.environ.get("API_URL") or "").rstrip("/")
     release_key = os.environ.get("AGENT_RELEASE_KEY") or ""
+    # When STRICT_PUBLISH=1 the script fails the CI step if either secret
+    # is missing — the right behaviour for tag-triggered releases, where
+    # silently skipping the manifest POST means agents in the field never
+    # see the new version even though the workflow goes green. We default
+    # to lenient mode so forks and workflow_dispatch dry-runs still work
+    # without leaking the production secrets.
+    strict_publish = os.environ.get("STRICT_PUBLISH") == "1"
 
     platforms: dict = {}
     for path in fragments:
@@ -90,6 +97,13 @@ def main() -> int:
     print("─" * 60)
 
     if not api_url or not release_key:
+        if strict_publish:
+            print(
+                "::error::STRICT_PUBLISH=1 but API_URL or AGENT_RELEASE_KEY "
+                "is unset. Configure both secrets in repo Settings → "
+                "Secrets and variables → Actions, then re-run the workflow."
+            )
+            return 1
         print(
             "API_URL / AGENT_RELEASE_KEY unset → skipping publish "
             "(release assets still uploaded; POST manually if needed)."

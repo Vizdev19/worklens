@@ -84,8 +84,12 @@ _IDEMPOTENT_MIGRATIONS: tuple[str, ...] = (
     "ALTER TABLE screenshots ADD COLUMN IF NOT EXISTS thumbnail_url TEXT",
     # Multi-tenancy: org membership on users
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS org_id TEXT REFERENCES organizations(id)",
-    # email_verified column (legacy — Supabase now owns verification)
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT TRUE",
+    # (Removed — was: ADD COLUMN email_verified BOOLEAN NOT NULL DEFAULT TRUE)
+    # Supabase Auth now owns email verification; the column has no ORM
+    # counterpart in app/models.py:User. Keeping the ALTER would have
+    # created an orphan column on fresh DBs that no code reads. Existing
+    # production DBs that already have the column keep it harmlessly —
+    # nothing queries it.
     # Multi-tenancy: org_id on screenshots (now part of ORM model — index added)
     "ALTER TABLE screenshots ADD COLUMN IF NOT EXISTS org_id TEXT REFERENCES organizations(id)",
     "CREATE INDEX IF NOT EXISTS ix_screenshots_org_id ON screenshots (org_id)",

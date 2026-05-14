@@ -368,33 +368,77 @@ function Step2({ onNext, onSkip }: { onNext: () => void; onSkip: () => void }) {
 }
 
 // ── Step 3 — Download agent ────────────────────────────────────────────────────
+
+// Map agent manifest's GOOS-GOARCH platform key → user-facing label
+// + the file extension we know the agent archive uses. The launcher
+// binary's filename follows a different pattern (no version, no ext on
+// POSIX) so we derive it separately below.
+const PLATFORM_META: Record<
+  string,
+  { os: string; icon: string; agentExt: string; launcherSuffix: string }
+> = {
+  "darwin-arm64":  { os: "macOS (Apple Silicon)", icon: "🍎", agentExt: "tar.gz", launcherSuffix: ""    },
+  "darwin-amd64":  { os: "macOS (Intel)",          icon: "🍎", agentExt: "tar.gz", launcherSuffix: ""    },
+  "windows-amd64": { os: "Windows",                icon: "🪟", agentExt: "zip",    launcherSuffix: ".exe" },
+  "linux-amd64":   { os: "Linux",                  icon: "🐧", agentExt: "tar.gz", launcherSuffix: ""    },
+};
+
+interface AgentManifest {
+  version: string;
+  min_supported: string;
+  released_at: string;
+  platforms: Record<string, { url: string; sha256: string; size: number }>;
+}
+
+interface Download {
+  platformKey: string;
+  os: string;
+  icon: string;
+  agentLabel: string;
+  agentHref: string;
+  launcherLabel: string;
+  launcherHref: string;
+}
+
+// Derive the launcher binary URL from one of the agent archive URLs in
+// the same release. The launcher is at the same GitHub Release tag, with
+// filename `EmployeeMonitor-<platform>[.exe]`. We don't ship the launcher
+// in the manifest itself because it's not part of the auto-update flow
+// (the launcher is intentionally near-frozen — see launcher/README.md).
+function launcherUrlFromAgentUrl(agentUrl: string, platformKey: string): string {
+  // Agent URL example:
+  //   https://github.com/OWNER/REPO/releases/download/agent-v1.2.0/EmployeeMonitorAgent-1.2.0-darwin-arm64.tar.gz
+  // Launcher URL we want:
+  //   https://github.com/OWNER/REPO/releases/download/agent-v1.2.0/EmployeeMonitor-darwin-arm64
+  const suffix = PLATFORM_META[platformKey]?.launcherSuffix ?? "";
+  return agentUrl.replace(
+    /\/EmployeeMonitorAgent-[^/]+$/,
+    `/EmployeeMonitor-${platformKey}${suffix}`,
+  );
+}
+
 function Step3({ onDone }: { onDone: () => void }) {
   const [copied, setCopied] = useState(false);
-
-  const AGENT_VERSION = "1.1.3";
-  const DOWNLOADS = [
-    {
-      os: "Windows",
-      icon: "🪟",
-      label: `EmployeeMonitor-${AGENT_VERSION}-win.exe`,
-      href: `https://github.com/yourorg/employee-monitor/releases/download/agent-v${AGENT_VERSION}/EmployeeMonitor-${AGENT_VERSION}-win.exe`,
-    },
-    {
-      os: "macOS",
-      icon: "🍎",
-      label: `EmployeeMonitor-${AGENT_VERSION}-mac.dmg`,
-      href: `https://github.com/yourorg/employee-monitor/releases/download/agent-v${AGENT_VERSION}/EmployeeMonitor-${AGENT_VERSION}-mac.dmg`,
-    },
-    {
-      os: "Linux",
-      icon: "🐧",
-      label: `EmployeeMonitor-${AGENT_VERSION}-linux.AppImage`,
-      href: `https://github.com/yourorg/employee-monitor/releases/download/agent-v${AGENT_VERSION}/EmployeeMonitor-${AGENT_VERSION}-linux.AppImage`,
-    },
-  ];
+  const [manifest, setManifest] = useState<AgentManifest | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const SERVER_URL =
     process.env.NEXT_PUBLIC_API_URL || "https://your-api.vercel.app";
+
+  // Fetch the manifest once on mount. /agent/version is public — no auth
+  // required — so we can hit it with plain fetch instead of the api client.
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${SERVER_URL}/agent/version`, { cache: "no-store" })
+      .then(async (r) => {
+        if (r.status === 404) throw new Error("No agent release published yet.");
+        if (!r.ok) throw new Error(`Manifest fetch failed: HTTP ${r.status}`);
+        return (await r.json()) as AgentManifest;
+      })
+      .then((m) => { if (!cancelled) setManifest(m); })
+      .catch((e) => { if (!cancelled) setError(String(e.message || e)); });
+    return () => { cancelled = true; };
+  }, [SERVER_URL]);
 
   function copyServerUrl() {
     navigator.clipboard.writeText(SERVER_URL).then(() => {
@@ -402,6 +446,29 @@ function Step3({ onDone }: { onDone: () => void }) {
       setTimeout(() => setCopied(false), 2000);
     });
   }
+
+  // Build the per-platform Download cards from the manifest. Keys we
+  // don't recognise are silently dropped — protects against a future
+  // server-side platform addition (e.g. linux-arm64) the dashboard
+  // doesn't yet know how to label.
+  const downloads: Download[] = manifest
+    ? Object.entries(manifest.platforms)
+        .map(([platformKey, asset]): Download | null => {
+          const meta = PLATFORM_META[platformKey];
+          if (!meta) return null;
+          const agentFilename = asset.url.split("/").pop() ?? "";
+          return {
+            platformKey,
+            os: meta.os,
+            icon: meta.icon,
+            agentLabel: agentFilename,
+            agentHref: asset.url,
+            launcherLabel: `EmployeeMonitor-${platformKey}${meta.launcherSuffix}`,
+            launcherHref: launcherUrlFromAgentUrl(asset.url, platformKey),
+          };
+        })
+        .filter((d): d is Download => d !== null)
+    : [];
 
   return (
     <div className="space-y-6">
@@ -413,40 +480,94 @@ function Step3({ onDone }: { onDone: () => void }) {
         <p className="text-slate-500 text-sm mt-1">
           Install the agent on each computer you want to monitor. It runs
           silently in the background with a system tray icon.
+          {manifest && (
+            <span className="ml-1 text-slate-400">
+              (latest version: v{manifest.version})
+            </span>
+          )}
         </p>
       </div>
 
-      {/* Downloads */}
-      <div className="space-y-2">
-        {DOWNLOADS.map(({ os, icon, label, href }) => (
-          <a
-            key={os}
-            href={href}
-            className="flex items-center gap-3 p-3.5 rounded-xl border border-slate-200 hover:border-brand-300 hover:bg-brand-50 transition group"
-          >
-            <span className="text-2xl">{icon}</span>
-            <div className="flex-1 min-w-0">
-              <div className="font-medium text-sm text-slate-800">{os}</div>
-              <div className="text-xs text-slate-400 truncate">{label}</div>
+      {/* Loading / error states */}
+      {!manifest && !error && (
+        <div className="rounded-xl border border-slate-200 p-4 flex items-center justify-center gap-2 text-sm text-slate-500">
+          <Loader2 className="animate-spin" size={14} />
+          Fetching latest release…
+        </div>
+      )}
+      {error && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          Could not load the agent release: {error}
+          <div className="text-xs text-amber-700 mt-1">
+            You can still download manually from{" "}
+            <a
+              className="underline"
+              href="https://github.com/Vizdev19/worklens/releases/latest"
+              target="_blank"
+              rel="noreferrer"
+            >
+              the GitHub Releases page
+            </a>
+            .
+          </div>
+        </div>
+      )}
+
+      {/* Per-platform downloads. Each entry shows BOTH the launcher and
+          the agent archive — install.sh combines them. */}
+      {manifest && downloads.length > 0 && (
+        <div className="space-y-3">
+          {downloads.map((d) => (
+            <div
+              key={d.platformKey}
+              className="rounded-xl border border-slate-200 overflow-hidden"
+            >
+              <div className="flex items-center gap-2 px-3.5 py-2 bg-slate-50 border-b border-slate-200">
+                <span className="text-xl">{d.icon}</span>
+                <span className="font-medium text-sm text-slate-800">{d.os}</span>
+                <span className="text-xs text-slate-400 ml-auto">
+                  {d.platformKey}
+                </span>
+              </div>
+              <a
+                href={d.launcherHref}
+                className="flex items-center gap-3 px-3.5 py-2 hover:bg-slate-50 transition group border-b border-slate-100"
+              >
+                <Download size={14} className="text-brand-600 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs text-slate-500">Launcher</div>
+                  <div className="text-xs text-slate-700 font-mono truncate">
+                    {d.launcherLabel}
+                  </div>
+                </div>
+              </a>
+              <a
+                href={d.agentHref}
+                className="flex items-center gap-3 px-3.5 py-2 hover:bg-slate-50 transition group"
+              >
+                <Download size={14} className="text-brand-600 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs text-slate-500">Agent payload</div>
+                  <div className="text-xs text-slate-700 font-mono truncate">
+                    {d.agentLabel}
+                  </div>
+                </div>
+              </a>
             </div>
-            <Download
-              size={16}
-              className="text-slate-400 group-hover:text-brand-600 flex-shrink-0"
-            />
-          </a>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       {/* Setup instructions */}
       <div className="rounded-xl bg-slate-50 border border-slate-200 p-4 space-y-3">
         <div className="text-sm font-semibold text-slate-700 flex items-center gap-2">
           <Monitor size={15} className="text-brand-600" />
-          Quick setup (3 steps)
+          Quick setup
         </div>
         {[
-          "Download and run the installer for each computer.",
-          "Enter the employee's email + password when prompted.",
-          "The agent will start capturing and appear in the system tray.",
+          "Download the launcher and agent archive for the employee's OS.",
+          "Run installer/install.sh (macOS/Linux) or install.ps1 (Windows) with --launcher, --agent, --version.",
+          "Enter the employee's email + password when the agent prompts on first launch.",
         ].map((step, i) => (
           <div key={i} className="flex items-start gap-3">
             <span className="flex-shrink-0 w-5 h-5 rounded-full bg-brand-100 text-brand-700 text-xs font-bold flex items-center justify-center mt-0.5">
