@@ -17,6 +17,21 @@ app = FastAPI(
     version="1.0.0",
 )
 
+# Sanity log on cold start — surfaces the dashboard URL that signup
+# verification emails will redirect to. Vercel function logs catch this,
+# so a misconfigured DASHBOARD_URL is visible immediately rather than
+# only when a real user clicks a broken email link.
+#
+# Common misconfigurations this catches:
+#   - Pointing at the marketing site instead of the dashboard
+#   - Forgetting the http(s):// scheme
+#   - Leaving the default localhost in prod
+print(
+    f"[startup] env={settings.environment} "
+    f"dashboard_url={settings.dashboard_url} "
+    f"(signup verification emails redirect to {settings.dashboard_url}/auth/callback)"
+)
+
 # Allowed origins from env var: comma-separated list
 # In dev: http://localhost:3000
 # In prod: https://employee-monitor-dashboard.vercel.app

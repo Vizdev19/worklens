@@ -100,9 +100,13 @@ async def signup(
                 "password": body.password,
                 "email_confirm": False,   # Supabase sends verification email
                 "options": {
-                    # After the user clicks the link, Supabase redirects here.
+                    # After the user clicks the link, Supabase redirects to the
+                    # DASHBOARD's /auth/callback (the marketing site has no such
+                    # route). settings.dashboard_url accepts either
+                    # DASHBOARD_URL or the legacy FRONTEND_URL env var; see
+                    # app/config.py for the alias rules.
                     # Must be listed in Supabase → Auth → Allowed Redirect URLs.
-                    "email_redirect_to": f"{settings.frontend_url}/auth/callback",
+                    "email_redirect_to": f"{settings.dashboard_url}/auth/callback",
                 },
             },
         )

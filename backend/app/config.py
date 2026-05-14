@@ -1,3 +1,4 @@
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 from typing import Optional
@@ -23,9 +24,22 @@ class Settings(BaseSettings):
     app_name: str = "EmployeeMonitor"
     environment: str = "development"
 
-    # Frontend URL — used as the redirect target in Supabase verification emails.
-    # Must be listed in Supabase Dashboard → Auth → URL Configuration → Allowed Redirect URLs.
-    frontend_url: str = "http://localhost:3000"
+    # Dashboard URL — the host that serves the /auth/callback page. Used as
+    # email_redirect_to when Supabase sends verification links during org
+    # signup. MUST be the **dashboard** app's URL (not the marketing site),
+    # because only the dashboard owns /auth/callback.
+    #
+    # Must also be listed in Supabase Dashboard → Auth → URL Configuration
+    # → Allowed Redirect URLs, or Supabase silently rewrites the redirect
+    # to its own SITE_URL fallback.
+    #
+    # Accepts either DASHBOARD_URL (preferred — unambiguous) or the older
+    # FRONTEND_URL env var name (kept for backward compat with deployments
+    # that haven't renamed yet). DASHBOARD_URL wins when both are set.
+    dashboard_url: str = Field(
+        default="http://localhost:3000",
+        validation_alias=AliasChoices("DASHBOARD_URL", "FRONTEND_URL"),
+    )
 
     # Bearer-style secret used by the CI release pipeline to publish new agent
     # manifests via POST /agent/version. Keep this out of any client/agent build —
