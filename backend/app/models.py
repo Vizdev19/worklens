@@ -90,6 +90,11 @@ class User(Base):
     role            = Column(SAEnum(UserRole), default=UserRole.employee, nullable=False)
     is_active       = Column(Boolean, default=True)
     org_id          = Column(String, ForeignKey("organizations.id"), nullable=True, index=True)
+    # Legacy — Supabase Auth now owns verification, so this column is no
+    # longer read or written by the app. Kept declared on the model so
+    # Alembic autogenerate doesn't keep proposing to DROP COLUMN it from
+    # production DBs that have it from the pre-Supabase-Auth era.
+    email_verified  = Column(Boolean, server_default="true", nullable=False)
     created_at      = Column(DateTime(timezone=True), server_default=func.now())
     updated_at      = Column(DateTime(timezone=True), onupdate=func.now())
 

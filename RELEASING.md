@@ -1,3 +1,78 @@
+# Operating the backend + releasing the agent
+
+## Schema migrations (Alembic)
+
+The backend schema is managed by **Alembic**, NOT by `Base.metadata.create_all`.
+Every schema change is a versioned Python file under `backend/migrations/versions/`.
+
+### Workflow for a new schema change
+
+1. **Edit `backend/app/models.py`** — add a column, table, index, whatever.
+2. **Generate the migration:**
+
+   ```bash
+   cd backend
+   alembic revision --autogenerate -m "Add foo to bar"
+   ```
+
+   Alembic introspects your local dev DB, diffs against the ORM, and
+   writes a new file under `migrations/versions/`.
+
+3. **Review the generated file.** Autogenerate is usually right but
+   occasionally misses things (e.g. enum changes, server-side defaults).
+   Open the file. Make sure `upgrade()` does what you intended and
+   `downgrade()` reverses it.
+
+4. **Apply locally:**
+
+   ```bash
+   python -m scripts.init_db           # alembic upgrade head
+   ```
+
+5. **Commit the file** along with the model change. CI doesn't auto-run
+   migrations against prod — that's a separate operator step.
+
+### Applying migrations to production
+
+```bash
+cd backend
+export DATABASE_URL='postgresql+asyncpg://...pooler.supabase.com:6543/postgres'
+export SUPABASE_JWT_SECRET='...'
+python -m scripts.init_db
+```
+
+That's it. Alembic reads `alembic_version` from the DB, applies any
+pending revisions in order, and exits.
+
+### One-time bootstrap of an existing DB
+
+When introducing Alembic to a DB that already has the schema applied
+(via the old `init_db` machinery or manual SQL), the DB is at the
+baseline revision but Alembic doesn't know it. Tell it:
+
+```bash
+# Make sure the schema actually matches the baseline first (any missing
+# tables get manually created via Supabase SQL Editor one last time).
+python -m scripts.init_db --stamp-only
+```
+
+`--stamp-only` writes `alembic_version=<baseline-rev>` to the DB
+without running any DDL. Future migrations layer on top normally.
+
+### Useful Alembic commands
+
+| Command | What it does |
+|---|---|
+| `alembic current` | Print the revision the DB is at right now |
+| `alembic history` | List every revision and its date |
+| `alembic upgrade head` | Apply all pending revisions |
+| `alembic upgrade +1` | Apply just the next revision |
+| `alembic downgrade -1` | Roll back the most recent revision |
+| `alembic downgrade base` | Drop everything Alembic created (tests / nuke-from-orbit) |
+| `alembic stamp head` | Mark the DB as at head without running anything |
+
+---
+
 # Releasing the agent
 
 This is the operator runbook for cutting a new agent release. The

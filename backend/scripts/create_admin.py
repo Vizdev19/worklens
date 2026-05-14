@@ -6,9 +6,9 @@ Usage:
     python -m scripts.create_admin
 
 The script:
-  1. Creates the user in Supabase Auth (email auto-confirmed).
-  2. Creates the matching profile row in the local `users` table.
-  3. Runs init_db() so any pending migrations are applied first.
+  1. Runs Alembic migrations to head so the schema is current.
+  2. Creates the user in Supabase Auth (email auto-confirmed).
+  3. Creates the matching profile row in the local `users` table.
 """
 
 import asyncio
@@ -20,15 +20,27 @@ from sqlalchemy import select
 sys.path.insert(0, ".")
 
 from app.config import get_settings
-from app.database import AsyncSessionLocal, init_db
+from app.database import AsyncSessionLocal
 from app.models import User, UserRole
 
 settings = get_settings()
 
 
+def _alembic_upgrade_head() -> None:
+    """Run pending Alembic migrations synchronously. Idempotent."""
+    from pathlib import Path
+    from alembic import command
+    from alembic.config import Config
+
+    backend_root = Path(__file__).resolve().parent.parent
+    cfg = Config(str(backend_root / "alembic.ini"))
+    cfg.set_main_option("script_location", str(backend_root / "migrations"))
+    command.upgrade(cfg, "head")
+
+
 async def main():
-    print("🚀 Initializing database...")
-    await init_db()
+    print("🚀 Applying pending schema migrations…")
+    _alembic_upgrade_head()
 
     print("\n👤 Create super-admin user")
     email = input("Email: ").strip()
