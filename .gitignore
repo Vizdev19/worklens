@@ -2,8 +2,13 @@
 __pycache__/
 *.pyc
 *.pyo
+# Match any virtualenv directory — bare names and per-version variants
+# like venv-py312 (so when you spin up a fresh interpreter for a single
+# script run, the few-thousand-file site-packages tree doesn't show up
+# as "3000+ untracked files" in your IDE).
 .venv/
 venv/
+venv-*/
 *.egg-info/
 .pytest_cache/
 
