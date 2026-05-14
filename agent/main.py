@@ -62,6 +62,7 @@ import schedule
 import auth
 import autostart
 import capture
+import heartbeat
 import idle
 import queue_manager
 import review_queue
@@ -296,6 +297,13 @@ def main():
     # on next start; the relaunch is triggered from the __main__ block
     # below once main() returns.
     updater.start()
+
+    # 3c. Start the heartbeat poller. Pulses every ~10 min with jitter,
+    # giving admins observability into who's running / which versions /
+    # who's stuck. Fire-and-forget — heartbeats are diagnostic, not
+    # authoritative; a missed pulse just means a slightly stale "last
+    # seen" in the dashboard until the next one lands.
+    heartbeat.start()
 
     # 4. Start scheduler in background thread
     sched_thread = threading.Thread(target=scheduler_loop, daemon=True)

@@ -27,6 +27,27 @@ export interface ScreenshotListResponse {
   items: Screenshot[];
 }
 
+// Latest heartbeat per employee — populated from /employees/heartbeats.
+// All heartbeat-derived fields are null for employees whose agent has
+// never pinged (fresh hire, broken install, etc.).
+export interface HeartbeatSummary {
+  user_id: string;
+  full_name: string;
+  email: string;
+  is_active: boolean;
+
+  agent_version: string | null;
+  os_platform: string | null;
+  status: string | null;
+  queue_size: number | null;
+  pending_review: number | null;
+  captures_today: number | null;
+  last_capture_at: string | null;
+  last_upload_ok: boolean | null;
+  last_error: string | null;
+  last_seen: string | null;
+}
+
 export type Plan = "free" | "starter" | "pro" | "enterprise";
 
 export interface Org {

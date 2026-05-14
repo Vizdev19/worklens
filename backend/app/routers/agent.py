@@ -24,10 +24,12 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import get_current_user
+from app.agent_gate import require_min_agent_version
 from app.config import get_settings
 from app.database import get_db
-from app.models import AgentRelease
-from app.schemas import AgentReleaseOut, AgentReleaseUpdate
+from app.models import AgentHeartbeat, AgentRelease, User
+from app.schemas import AgentReleaseOut, AgentReleaseUpdate, HeartbeatPayload
 
 router = APIRouter(prefix="/agent", tags=["Agent"])
 settings = get_settings()
@@ -129,3 +131,46 @@ async def publish_agent_version(
 
     await db.flush()
     return release
+
+
+# ── Heartbeat ─────────────────────────────────────────────────────────────────
+
+@router.post("/heartbeat", status_code=201)
+async def heartbeat(
+    body: HeartbeatPayload,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    # Subject to the same version-gate as upload — an agent below
+    # min_supported can't pulse its presence either (otherwise heartbeats
+    # would mask a stuck fleet from telemetry). The 426 response wakes
+    # the agent's updater immediately via the existing 426 handler.
+    _agent_version: str = Depends(require_min_agent_version),
+):
+    """
+    Agent → server pulse. Insert-only; one row per call. The agent calls
+    this on a ~10 min cadence with jitter.
+
+    We deliberately don't return anything beyond the 201 status. Future
+    versions might piggy-back server→agent signals (e.g. "your org is
+    over-quota, pause captures") but for v1 the 401/426 status codes are
+    enough: deactivated users 401 via get_current_user, too-old agents
+    426 via require_min_agent_version.
+    """
+    row = AgentHeartbeat(
+        user_id=current_user.id,
+        # Mirror the user's org_id so we don't need a join for tenant-
+        # scoped dashboard queries (same pattern as Screenshot.org_id).
+        org_id=current_user.org_id,
+        agent_version=body.agent_version,
+        os_platform=body.os_platform,
+        status=body.status,
+        queue_size=body.queue_size,
+        pending_review=body.pending_review,
+        captures_today=body.captures_today,
+        last_capture_at=body.last_capture_at,
+        last_upload_ok=body.last_upload_ok,
+        last_error=body.last_error,
+    )
+    db.add(row)
+    await db.flush()
+    return {"ok": True}

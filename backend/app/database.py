@@ -101,6 +101,13 @@ _IDEMPOTENT_MIGRATIONS: tuple[str, ...] = (
     "ALTER TABLE users ALTER COLUMN hashed_password DROP NOT NULL",
     # ARCH-8: server-side onboarding flag (replaces localStorage hack)
     "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS onboarding_done BOOLEAN NOT NULL DEFAULT FALSE",
+    # M7: composite index for the "latest heartbeat per user" lookup. The
+    # AgentHeartbeat ORM declares user_id + recorded_at indexed individually
+    # via `index=True`, but the hot query is ORDER BY recorded_at DESC LIMIT 1
+    # WHERE user_id = X — a composite (user_id, recorded_at DESC) is ~50×
+    # faster than scanning two separate B-trees.
+    "CREATE INDEX IF NOT EXISTS ix_agent_heartbeats_user_recorded "
+    "ON agent_heartbeats (user_id, recorded_at DESC)",
 )
 
 

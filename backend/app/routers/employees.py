@@ -6,8 +6,8 @@ import httpx
 
 from app.config import get_settings
 from app.database import get_db
-from app.models import Organization, User, UserRole
-from app.schemas import UserOut, UserCreate
+from app.models import AgentHeartbeat, Organization, User, UserRole
+from app.schemas import HeartbeatSummary, UserOut, UserCreate
 from app.auth import require_admin, get_current_user
 
 settings = get_settings()
@@ -45,6 +45,93 @@ async def list_employees(
         q = q.where(User.is_active == is_active)
     result = await db.execute(q.order_by(User.full_name))
     return result.scalars().all()
+
+
+@router.get("/heartbeats", response_model=list[HeartbeatSummary])
+async def list_employee_heartbeats(
+    current_admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Latest heartbeat per employee in the calling admin's org, joined onto
+    the employee's profile so the dashboard can render one row per person
+    with one API call.
+
+    Strategy: a window-functioned subquery over agent_heartbeats picks
+    `recorded_at DESC LIMIT 1 per user_id`, then we LEFT JOIN that onto
+    users so employees who've never pinged still appear (with all
+    heartbeat fields null). The composite index on
+    (user_id, recorded_at DESC) makes the row-pick a single index lookup
+    per employee.
+
+    NB: this is an admin-only / org-scoped surface. Employees calling
+    /employees/me get only their own profile via a different endpoint;
+    they have no reason to see anyone else's agent state.
+    """
+    org_id = _assert_org(current_admin)
+
+    # Window function over heartbeats: rank rows newest-first per user,
+    # filter to rank=1. Avoids GROUP BY + the "pick a non-aggregate
+    # alongside max(recorded_at)" Postgres dance.
+    latest = (
+        select(
+            AgentHeartbeat,
+            func.row_number().over(
+                partition_by=AgentHeartbeat.user_id,
+                order_by=AgentHeartbeat.recorded_at.desc(),
+            ).label("rn"),
+        )
+        # Scope to the admin's org. Mirrors the same pattern as Screenshot.
+        .where(AgentHeartbeat.org_id == org_id)
+        .subquery()
+    )
+    latest_q = select(latest).where(latest.c.rn == 1).subquery()
+
+    # LEFT JOIN so employees with no heartbeat at all still surface
+    # as "never seen" rows (all hb_* fields will be NULL).
+    rows = (await db.execute(
+        select(
+            User,
+            latest_q.c.agent_version,
+            latest_q.c.os_platform,
+            latest_q.c.status,
+            latest_q.c.queue_size,
+            latest_q.c.pending_review,
+            latest_q.c.captures_today,
+            latest_q.c.last_capture_at,
+            latest_q.c.last_upload_ok,
+            latest_q.c.last_error,
+            latest_q.c.recorded_at,
+        )
+        .outerjoin(latest_q, User.id == latest_q.c.user_id)
+        .where(
+            User.role == UserRole.employee,
+            User.org_id == org_id,
+        )
+        .order_by(User.full_name)
+    )).all()
+
+    return [
+        HeartbeatSummary(
+            user_id=user.id,
+            full_name=user.full_name,
+            email=user.email,
+            is_active=user.is_active,
+            agent_version=agent_version,
+            os_platform=os_platform,
+            status=status,
+            queue_size=queue_size,
+            pending_review=pending_review,
+            captures_today=captures_today,
+            last_capture_at=last_capture_at,
+            last_upload_ok=last_upload_ok,
+            last_error=last_error,
+            last_seen=recorded_at,
+        )
+        for (user, agent_version, os_platform, status, queue_size,
+             pending_review, captures_today, last_capture_at,
+             last_upload_ok, last_error, recorded_at) in rows
+    ]
 
 
 @router.post("/", response_model=UserOut, status_code=201)

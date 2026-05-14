@@ -113,6 +113,47 @@ class AgentReleaseUpdate(BaseModel):
     notes: Optional[str] = None
 
 
+# ── Agent heartbeat ───────────────────────────────────────────────────────────
+# Sent by the agent every ~10 min. We accept whatever shape the agent
+# can plausibly produce and don't enforce ranges — heartbeats are
+# diagnostic, not authoritative. Truncate-on-input on last_error is a
+# DoS guard against a malformed agent that puts a megabyte of stack
+# trace in there.
+
+class HeartbeatPayload(BaseModel):
+    agent_version: str = Field(min_length=1, max_length=32)
+    os_platform: str = Field(min_length=1, max_length=64)
+    status: str = Field(min_length=1, max_length=64)
+    queue_size: int = Field(default=0, ge=0)
+    pending_review: int = Field(default=0, ge=0)
+    captures_today: int = Field(default=0, ge=0)
+    last_capture_at: Optional[datetime] = None
+    last_upload_ok: bool = True
+    last_error: Optional[str] = Field(default=None, max_length=500)
+
+
+class HeartbeatSummary(BaseModel):
+    """One row per employee in GET /employees/heartbeats — the LATEST
+    pulse, plus enough employee metadata to render the dashboard list
+    without a second round-trip."""
+    user_id: str
+    full_name: str
+    email: EmailStr
+    is_active: bool
+
+    # All null when the agent has never reported.
+    agent_version: Optional[str] = None
+    os_platform: Optional[str] = None
+    status: Optional[str] = None
+    queue_size: Optional[int] = None
+    pending_review: Optional[int] = None
+    captures_today: Optional[int] = None
+    last_capture_at: Optional[datetime] = None
+    last_upload_ok: Optional[bool] = None
+    last_error: Optional[str] = None
+    last_seen: Optional[datetime] = None      # recorded_at of latest heartbeat
+
+
 # ── Deletion log ──────────────────────────────────────────────────────────────
 
 class DeletionLogCreate(BaseModel):

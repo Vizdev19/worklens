@@ -1,5 +1,5 @@
 from sqlalchemy import (
-    Column, String, Integer, Boolean, DateTime,
+    Column, String, Integer, Boolean, DateTime, BigInteger,
     ForeignKey, Enum as SAEnum
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -144,6 +144,57 @@ class AgentRelease(Base):
     signature = Column(String, nullable=True)          # reserved for Ed25519 — see brainstorm
     notes = Column(String, nullable=True)              # human-readable changelog
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class AgentHeartbeat(Base):
+    """
+    Pulse from a running agent, sent every ~10 min. Powers admin
+    observability ("who's running what version, are they alive?") and
+    closes the auto-update feedback loop ("did 1.2.0 → 1.2.1 actually
+    roll out?"). Insert-only — we never UPDATE rows here; queries that
+    want "latest per agent" sort by recorded_at DESC and take the first.
+
+    A retention job (Phase H5 / open audit item) will eventually GC rows
+    older than ~30 days. Until then volume is bounded by
+        users × 6/hr × 24h × 30d ≈ 4.3k rows / user / month
+    which is fine even at 1000 users.
+
+    Heartbeats are insert-cheap by design: no per-statement validation
+    beyond what the column types enforce, and we never index anything
+    besides (user_id, recorded_at) for the "latest" lookup. If we ever
+    need historical version-distribution dashboards we'll add a
+    materialised view rather than indexing more columns on the hot path.
+    """
+    __tablename__ = "agent_heartbeats"
+
+    # BigInteger because at 1000 users × 4k rows/month this hits 50M rows
+    # in a year — Integer (32-bit signed) would overflow within ~50 months
+    # at higher fan-out. Cheap insurance.
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    # Mirrored from User.org_id at write time for tenant-scoped queries
+    # without a join (same pattern as Screenshot/DeletionLog).
+    org_id = Column(String, ForeignKey("organizations.id"), nullable=True, index=True)
+
+    # ── Reported by the agent ────────────────────────────────────────────
+    agent_version   = Column(String, nullable=False)   # "1.2.0"
+    os_platform     = Column(String, nullable=False)   # "darwin-arm64", etc.
+    status          = Column(String, nullable=False)   # active | idle | paused | …
+    queue_size      = Column(Integer, default=0)       # offline-upload queue depth
+    pending_review  = Column(Integer, default=0)       # review-queue depth
+    captures_today  = Column(Integer, default=0)
+    last_capture_at = Column(DateTime(timezone=True), nullable=True)
+    last_upload_ok  = Column(Boolean, default=True)
+    last_error      = Column(String, nullable=True)    # truncated to ~500 chars at agent
+
+    # ── Computed by the server ───────────────────────────────────────────
+    recorded_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+        index=True,
+    )
 
 
 class DeletionLog(Base):

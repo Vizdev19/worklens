@@ -1,6 +1,12 @@
 import axios, { AxiosError } from "axios";
 import { createClient } from "@supabase/supabase-js";
-import type { User, Screenshot, ScreenshotListResponse, Org } from "@/types/api";
+import type {
+  User,
+  Screenshot,
+  ScreenshotListResponse,
+  Org,
+  HeartbeatSummary,
+} from "@/types/api";
 
 const baseURL =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -127,6 +133,10 @@ export const employeesApi = {
     (await api.patch(`/employees/${id}/deactivate`)).data,
   activate: async (id: string) =>
     (await api.patch(`/employees/${id}/activate`)).data,
+  // Latest heartbeat per employee in the calling admin's org. Drives
+  // the "last seen / agent version / status" columns on /dashboard/employees.
+  heartbeats: async () =>
+    (await api.get<HeartbeatSummary[]>("/employees/heartbeats")).data,
 };
 
 // ── Orgs API ──────────────────────────────────────────────────────────────────
