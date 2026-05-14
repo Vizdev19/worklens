@@ -37,6 +37,12 @@ _PREVIEW_WIDTH = 640   # pixels — larger than upload thumbnails, good for revi
 def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(str(_DB_PATH), timeout=5)
     conn.row_factory = sqlite3.Row
+    # WAL + busy_timeout: see the same comment in queue_manager.py.
+    # Critical here because the review queue is the busiest DB — capture
+    # loop writes, review_upload_job writes/deletes every 30s, AND the UI
+    # status polls the pending_count() reader continuously.
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     return conn
 
 

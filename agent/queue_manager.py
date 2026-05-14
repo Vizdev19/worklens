@@ -33,6 +33,15 @@ def _tighten_db_perms():
 
 def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH, timeout=5)
+    # WAL lets readers and writers proceed concurrently — without it the
+    # default rollback journal serialises every operation on the DB. The
+    # agent has multiple concurrent consumers (capture loop, upload retry,
+    # UI status poll, updater) and was hitting random "database is locked"
+    # errors under load. busy_timeout gives the kernel up to 5s to wait for
+    # a lock before failing instead of erroring immediately. Both pragmas
+    # are safe to set on every connection — WAL is per-DB, not per-conn.
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     return conn
 
 

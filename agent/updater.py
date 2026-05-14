@@ -233,7 +233,22 @@ def _check_once() -> None:
     key = platform_key()
     asset = platforms_map.get(key)
     if not asset:
-        print(f"[updater] manifest has no asset for {key}; skipping")
+        # The manifest exists but doesn't list this platform. Two cases:
+        #   - Normal: minor releases sometimes skip a platform (e.g. we
+        #     dropped macos-13 from CI). The agent just sits on its
+        #     current version until a platform-inclusive release ships.
+        #   - Critical: force-update is already required (must_update set
+        #     from a 426) AND there's no asset to install. The agent is
+        #     now halted with no way to recover until the manifest is
+        #     fixed. Log loudly so it shows up in support tickets.
+        if state.must_update_required():
+            print(
+                f"[updater] CRITICAL: server requires update but no asset "
+                f"for {key} in the published manifest. Agent will remain "
+                f"halted until the manifest is updated."
+            )
+        else:
+            print(f"[updater] manifest has no asset for {key}; skipping")
         return
 
     is_forced = state.must_update_required() or (

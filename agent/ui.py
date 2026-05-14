@@ -498,6 +498,12 @@ HTML = r"""<!doctype html>
         // explain the dot.
         dot.className = "dot offline";
         $("statusText").textContent = "Captures paused";
+      } else if (s.status === "permission_denied") {
+        // macOS Screen Recording permission missing — actionable UX:
+        // tell the user where to grant it, surface a red dot.
+        dot.className = "dot offline";
+        $("statusText").textContent =
+          "Screen Recording permission required — grant in System Settings, then relaunch";
       } else {
         dot.className = "dot " + s.status;
         const labels = {

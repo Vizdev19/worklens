@@ -89,6 +89,12 @@ def capture_job():
     if state.must_update_required():
         return
 
+    # Screen Recording (macOS) was denied at startup — no point trying.
+    # Status was already set to "permission_denied" in check_platform_permissions.
+    if OS == "Darwin" and not capture.check_macos_permission():
+        state.set_status("permission_denied")
+        return
+
     if not state.is_tracking():
         state.set_status("paused")
         return
@@ -238,11 +244,24 @@ def on_signout():
 # ── Platform checks ─────────────────────────────────────────────────────────
 
 def check_platform_permissions():
+    """
+    One-shot check at startup. The agent doesn't keep re-checking — TCC
+    permission is only granted via the system prompt, and once granted
+    persists across launches (modulo binary-signature changes, which is
+    why we tell the user to re-launch after granting).
+
+    NB: without code signing, every agent update changes the binary
+    hash → TCC may re-prompt on each update. There's no clean fix
+    short of shipping a signed build; this is documented in the
+    auto-update brainstorm under "limitations of v1".
+    """
     if OS == "Darwin" and not capture.check_macos_permission():
         print("[main] macOS Screen Recording permission denied.")
         print("       Grant it in System Settings → Privacy & Security → "
               "Screen Recording, then re-launch.")
-        # Don't exit — let user see the UI and the missing permission state
+        # Surface in the UI so the user sees something actionable instead
+        # of an agent that silently uploads black frames.
+        state.set_status("permission_denied")
 
 
 # ── Main ────────────────────────────────────────────────────────────────────

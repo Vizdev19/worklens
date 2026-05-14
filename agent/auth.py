@@ -16,6 +16,7 @@ Cache rules:
 
 import keyring
 import threading
+import time
 from typing import Optional
 
 import requests
@@ -25,6 +26,19 @@ from config import SERVER_URL, SUPABASE_URL, SUPABASE_ANON_KEY, KEYRING_SERVICE
 _KEYS = ("access_token", "refresh_token", "employee_id", "full_name")
 _cache: dict = {}
 _lock = threading.Lock()
+
+# Serialises refresh_tokens() across threads. Without this, two concurrent
+# 401-driven refreshes (e.g. uploader + updater + deletion-log all in flight)
+# would each send the SAME refresh token to Supabase. Supabase rotates the
+# token on use → the first call wins, the others get "invalid refresh
+# token" and _clear_keychain() runs → user is silently logged out, captures
+# halt, no UI hint, until they manually sign back in. (H1 in the audit.)
+_refresh_lock = threading.Lock()
+_last_refresh_at: float = 0.0
+# Any peer that called refresh_tokens() inside this window is considered
+# to have refreshed for everyone else too. 30s is short enough to recover
+# from a stale token cache; long enough that a multi-thread burst dedupes.
+_REFRESH_DEBOUNCE_SECONDS = 30.0
 
 _SUPABASE_HEADERS = {
     "apikey": SUPABASE_ANON_KEY,
@@ -111,30 +125,52 @@ def login(email: str, password: str) -> bool:
 
 
 def refresh_tokens() -> bool:
-    """Silently refresh the access token using the Supabase refresh token."""
-    refresh_token = _load("refresh_token")
-    if not refresh_token:
-        return False
+    """
+    Silently refresh the access token using the Supabase refresh token.
 
-    try:
-        res = requests.post(
-            f"{SUPABASE_URL}/auth/v1/token?grant_type=refresh_token",
-            headers=_SUPABASE_HEADERS,
-            json={"refresh_token": refresh_token},
-            timeout=10,
-        )
-        if res.status_code != 200:
-            _clear_keychain()
-            _clear_cache()
+    Thread-safe: a global mutex serializes the refresh call. The second
+    thread to enter sees that a peer just refreshed inside the debounce
+    window and short-circuits, avoiding the "rotate the same token twice
+    → second call gets invalid_grant → wipe credentials" failure mode.
+    """
+    global _last_refresh_at
+    with _refresh_lock:
+        # Did a peer already refresh us while we were waiting on the lock?
+        now = time.monotonic()
+        if now - _last_refresh_at < _REFRESH_DEBOUNCE_SECONDS:
+            # Trust the peer's outcome — if there's no access_token now
+            # the peer's refresh failed and we should report the same.
+            return _load("access_token") is not None
+
+        refresh_token = _load("refresh_token")
+        if not refresh_token:
             return False
 
-        data = res.json()
-        _store("access_token",  data["access_token"])
-        _store("refresh_token", data["refresh_token"])
-        return True
+        try:
+            res = requests.post(
+                f"{SUPABASE_URL}/auth/v1/token?grant_type=refresh_token",
+                headers=_SUPABASE_HEADERS,
+                json={"refresh_token": refresh_token},
+                timeout=10,
+            )
+            if res.status_code != 200:
+                # The refresh token is now dead server-side. Wipe local
+                # state so future callers fall through to is_logged_in()
+                # → False and trigger the login UI.
+                _clear_keychain()
+                _clear_cache()
+                _last_refresh_at = now  # debounce failures too
+                return False
 
-    except requests.RequestException:
-        return False
+            data = res.json()
+            _store("access_token",  data["access_token"])
+            _store("refresh_token", data["refresh_token"])
+            _last_refresh_at = now
+            return True
+
+        except requests.RequestException:
+            # Network error — leave creds intact, let next attempt retry.
+            return False
 
 
 def get_access_token() -> Optional[str]:
