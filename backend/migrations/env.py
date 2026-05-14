@@ -54,7 +54,16 @@ if config.config_file_name is not None:
 # Inject the DATABASE_URL from app settings, overriding whatever is in
 # alembic.ini (which holds a placeholder). This is what lets us point
 # alembic at prod by exporting DATABASE_URL in the shell.
-config.set_main_option("sqlalchemy.url", get_settings().database_url)
+#
+# Escape % → %% before passing to alembic's configparser. URL-encoded
+# password characters like %40 (@) or %23 (#) trigger "invalid
+# interpolation syntax" otherwise — configparser reads % as the start
+# of a %(name)s reference. set_main_option goes through configparser
+# under the hood, so it needs the escape; the actual asyncpg/SQLAlchemy
+# layer sees the original URL after configparser un-escapes the doubled
+# percent signs.
+_db_url = get_settings().database_url
+config.set_main_option("sqlalchemy.url", _db_url.replace("%", "%%"))
 
 # Target metadata used by autogenerate to diff against the live DB.
 target_metadata = Base.metadata
