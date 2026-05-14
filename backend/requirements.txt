@@ -1,7 +1,12 @@
 fastapi==0.111.0
 uvicorn[standard]==0.29.0
 sqlalchemy==2.0.30
-greenlet==3.0.3
+# greenlet is a transitive SQLAlchemy dep (async support). Unpinned
+# because pinning to 3.0.3 left no wheel for Python 3.13+ and pip falls
+# through to a C++ source build that fails on 3.14's changed C-API
+# (renamed _PyInterpreterFrame / _PyCFrame internals). 3.1+ ships
+# wheels for every modern Python and is API-compatible with SQLAlchemy 2.
+greenlet>=3.1.1
 asyncpg==0.30.0
 alembic==1.13.1
 python-jose[cryptography]==3.3.0
@@ -10,6 +15,6 @@ python-multipart==0.0.9
 supabase==2.4.3
 python-dotenv==1.0.1
 pydantic-settings==2.2.1
-Pillow==10.3.0
+Pillow==12.2.0
 aiofiles==23.2.1
 httpx==0.27.0
